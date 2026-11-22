@@ -28,6 +28,7 @@ public class ExamResultManagementSystemTest {
         testFilePersistenceRoundTrip();
         testCustomSortingLogicDirectly();
         testCustomSearchingLogicDirectly();
+        testNameSanitizationAndExtraMarks();
 
         System.out.println("\n==================================================");
         System.out.printf("  TEST RESULTS: %d / %d PASSED%n", testsPassed, testsTotal);
@@ -325,9 +326,25 @@ public class ExamResultManagementSystemTest {
     }
 
     private static void cleanResultsFile() {
-        File file = new File(ExamResultManagementSystem.FILE_NAME);
-        if (file.exists()) {
-            file.delete();
-        }
+        // Intentionally does NOT touch the real results.txt: tests run fully in memory.
+    }
+
+    private static void testNameSanitizationAndExtraMarks() {
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+        runWithInput(list, "1\nPatel, Kiran\n80 70 90\n5\n");
+        assertTrue("Edge Case - Comma in name is sanitized",
+                list.size() == 1 && list.get(0).getName().equals("Patel Kiran"),
+                "Name was not sanitized");
+        StudentResult reparsed = ExamResultManagementSystem.parseLine(list.get(0).toFileString());
+        assertTrue("Edge Case - Sanitized record survives file round trip",
+                reparsed != null && reparsed.getName().equals("Patel Kiran"),
+                "Record lost on reload");
+
+        ArrayList<StudentResult> list2 = new ArrayList<>();
+        String out = runWithInput(list2, "1\nA B\n80 70 90 999\n5\n");
+        assertTrue("Edge Case - More than 3 marks rejected",
+                list2.isEmpty() && out.contains("exactly 3 marks"),
+                "Extra marks were accepted");
     }
 }

@@ -17,3 +17,6 @@ replay_pid*
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Runtime data (created by the program)
+results.txt

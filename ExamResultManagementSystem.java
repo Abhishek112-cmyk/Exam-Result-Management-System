@@ -207,6 +207,12 @@ public class ExamResultManagementSystem {
         while (name.isEmpty() && scanner.hasNextLine()) {
             name = scanner.nextLine().trim();
         }
+        // Commas / pipes are the file delimiters, so replace them to keep results.txt parseable
+        name = name.replace(",", " ").replace("|", " ").replaceAll("\\s+", " ").trim();
+        if (name.isEmpty()) {
+            System.out.println("Invalid name. Name cannot be empty.");
+            return;
+        }
 
         System.out.print("Enter Marks (3 subjects separated by space): ");
         if (!scanner.hasNextLine()) return;
@@ -220,7 +226,10 @@ public class ExamResultManagementSystem {
         int m1, m2, m3;
 
         try {
-            if (tokens.length >= 3) {
+            if (tokens.length > 3) {
+                System.out.println("Invalid marks. Please enter exactly 3 marks.");
+                return;
+            } else if (tokens.length == 3) {
                 m1 = Integer.parseInt(tokens[0]);
                 m2 = Integer.parseInt(tokens[1]);
                 m3 = Integer.parseInt(tokens[2]);
