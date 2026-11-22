@@ -109,7 +109,9 @@ public static void sortByPercentage(ArrayList<StudentResult> list) {
 .
 ├── ExamResultManagementSystem.java       # Main source file (single file solution)
 ├── ExamResultManagementSystemTest.java   # Automated unit and integration test suite
-├── results.txt                           # Persistent file storage
+├── run.sh                                # One-click compile & run (macOS)
+├── test.sh                               # One-click compile & run tests
+├── results.txt                           # Data file (auto-created on first exit, not committed)
 ├── .gitignore                            # Git ignore rules for build artifacts
 └── README.md                             # Complete project documentation
 ```
