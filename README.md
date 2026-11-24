@@ -107,11 +107,13 @@ public static void sortByPercentage(ArrayList<StudentResult> list) {
 ## 📂 Project Structure
 ```
 .
-├── ExamResultManagementSystem.java       # Main source file (single file solution)
-├── ExamResultManagementSystemTest.java   # Automated unit and integration test suite
-├── run.sh                                # One-click compile & run (macOS)
-├── test.sh                               # One-click compile & run tests
-├── results.txt                           # Data file (auto-created on first exit, not committed)
+├── ExamResultManagementSystem.java       # Single-file Java solution (Console + Swing Desktop GUI)
+├── ExamResultManagementSystemTest.java   # Automated unit and integration test suite (30 checks)
+├── app.sh                                # One-click compile & launch Desktop GUI App
+├── Launch_App.command                    # Double-clickable macOS Finder launcher for GUI App
+├── run.sh                                # One-click compile & run Console mode (or ./run.sh --gui)
+├── test.sh                               # One-click compile & run automated tests
+├── results.txt                           # Data file (auto-created on save/exit, not committed)
 ├── .gitignore                            # Git ignore rules for build artifacts
 └── README.md                             # Complete project documentation
 ```
@@ -154,15 +156,24 @@ public static void sortByPercentage(ArrayList<StudentResult> list) {
 javac ExamResultManagementSystem.java
 ```
 
-### 2. Run Application
+### 2. Run Desktop GUI Application (Java Swing Window)
 ```bash
+./app.sh
+# Or directly:
+java ExamResultManagementSystem --gui
+# Or double-click Launch_App.command in Finder on macOS
+```
+
+### 3. Run Console Application (Default Terminal Mode)
+```bash
+./run.sh
+# Or directly:
 java ExamResultManagementSystem
 ```
 
-### 3. Run Automated Tests
+### 4. Run Automated Tests
 ```bash
-javac ExamResultManagementSystemTest.java ExamResultManagementSystem.java
-java ExamResultManagementSystemTest
+./test.sh
 ```
 
 ---

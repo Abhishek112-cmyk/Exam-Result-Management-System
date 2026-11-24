@@ -2,12 +2,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
 
 /**
- * Automated test runner for ExamResultManagementSystem.
- * Validates all 4 primary test cases from the specification plus edge cases.
+ * Automated test runner for ExamResultManagementSystem (Console + GUI controller logic).
+ * Validates all 4 primary test cases from the specification plus edge cases and multi-record scale.
  */
 public class ExamResultManagementSystemTest {
 
@@ -29,6 +28,9 @@ public class ExamResultManagementSystemTest {
         testCustomSortingLogicDirectly();
         testCustomSearchingLogicDirectly();
         testNameSanitizationAndExtraMarks();
+        testGuiControllerOperationsAndFormats();
+        testMultipleRecordsScale();
+        testSwingGuiInstantiation();
 
         System.out.println("\n==================================================");
         System.out.printf("  TEST RESULTS: %d / %d PASSED%n", testsPassed, testsTotal);
@@ -51,12 +53,8 @@ public class ExamResultManagementSystemTest {
 
     /**
      * Test Case 1: Normal Input
-     * Input:
-     * Menu option 1 (Add result)
-     * Name: Kiran Patel
-     * Marks: 80 70 90
-     * Expected Output:
-     * Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
+     * Menu option 1 (Add result) | Name: Kiran Patel | Marks: 80 70 90
+     * Expected: Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
      */
     private static void testCase1_NormalInput() {
         cleanResultsFile();
@@ -78,12 +76,8 @@ public class ExamResultManagementSystemTest {
 
     /**
      * Test Case 2: Boundary / Minimum Input
-     * Input:
-     * Menu option 1 (Add result)
-     * Name: Lalit Soni
-     * Marks: 40 40 40
-     * Expected Output:
-     * Result added. ID: ER101 | Lalit Soni | Total: 120/300 | Percentage: 40.00 | Result: Pass
+     * Menu option 1 (Add result) | Name: Lalit Soni | Marks: 40 40 40
+     * Expected: Result added. ID: ER101 | Lalit Soni | Total: 120/300 | Percentage: 40.00 | Result: Pass
      */
     private static void testCase2_BoundaryMinimumInput() {
         cleanResultsFile();
@@ -105,12 +99,8 @@ public class ExamResultManagementSystemTest {
 
     /**
      * Test Case 3: Invalid Input
-     * Input:
-     * Menu option 1 (Add result)
-     * Name: Kiran Patel
-     * Marks: 80 105 90
-     * Expected Output:
-     * Invalid marks. Each mark must be between 0 and 100.
+     * Menu option 1 (Add result) | Name: Kiran Patel | Marks: 80 105 90
+     * Expected: Invalid marks. Each mark must be between 0 and 100.
      */
     private static void testCase3_InvalidInput() {
         cleanResultsFile();
@@ -136,21 +126,10 @@ public class ExamResultManagementSystemTest {
 
     /**
      * Test Case 4: Different Valid Scenario
-     * Existing: ER101 | Kiran Patel | 80.00 | Pass
-     * (a) Option 1: Mitali Roy, 35 30 38
-     *     Expected: Result added. ID: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail
-     * (b) Option 4 (Sort by percentage)
-     *     Expected:
-     *     1. ER101 | Kiran Patel | 80.00 | Pass
-     *     2. ER102 | Mitali Roy | 34.33 | Fail
-     * (c) Option 3 (Search): ER102
-     *     Expected:
-     *     Found: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail
      */
     private static void testCase4_DifferentValidScenario() {
         cleanResultsFile();
         ArrayList<StudentResult> list = new ArrayList<>();
-        // Simulate existing record in file or system: ER101 | Kiran Patel | 80.00 | Pass
         list.add(new StudentResult("ER101", "Kiran Patel", 80, 70, 90));
         ExamResultManagementSystem.updateNextIdNumber(list);
 
@@ -241,7 +220,6 @@ public class ExamResultManagementSystemTest {
         list.add(r2);
         list.add(r3);
 
-        // Sort descending
         ExamResultManagementSystem.sortByPercentage(list);
 
         assertTrue("Direct Sort Logic - First is Highest",
@@ -278,6 +256,125 @@ public class ExamResultManagementSystemTest {
         assertTrue("Direct Search Logic - Non-existent ID returns null",
                 notFound == null,
                 "Search should return null for non-existent ID");
+    }
+
+    private static void testNameSanitizationAndExtraMarks() {
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+        runWithInput(list, "1\nPatel, Kiran\n80 70 90\n5\n");
+        assertTrue("Edge Case - Comma in name is sanitized",
+                list.size() == 1 && list.get(0).getName().equals("Patel Kiran"),
+                "Name was not sanitized");
+        StudentResult reparsed = ExamResultManagementSystem.parseLine(list.get(0).toFileString());
+        assertTrue("Edge Case - Sanitized record survives file round trip",
+                reparsed != null && reparsed.getName().equals("Patel Kiran"),
+                "Record lost on reload");
+
+        ArrayList<StudentResult> list2 = new ArrayList<>();
+        String out = runWithInput(list2, "1\nA B\n80 70 90 999\n5\n");
+        assertTrue("Edge Case - More than 3 marks rejected",
+                list2.isEmpty() && out.contains("exactly 3 marks"),
+                "Extra marks were accepted");
+    }
+
+    /**
+     * Tests the shared GUI controller methods (3-box input, combined input, invalid marks, sort & search formatting).
+     */
+    private static void testGuiControllerOperationsAndFormats() {
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+
+        // 1. Add via 3 separate subject fields
+        OperationResult res1 = ExamResultManagementSystem.addResultFromInputs(list, "Kiran Patel", "80", "70", "90");
+        assertTrue("GUI Controller - 3 Subject Fields Add Result",
+                res1.isSuccess() && res1.getMessage().equals(
+                        "Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass"),
+                "Unexpected message: " + res1.getMessage());
+
+        // 2. Reject invalid marks via GUI controller without consuming ER102
+        OperationResult resInvalid = ExamResultManagementSystem.addResultFromInputs(list, "Kiran Patel", "80", "105", "90");
+        assertTrue("GUI Controller - Invalid Marks Rejected with Exact Message",
+                !resInvalid.isSuccess() && resInvalid.getMessage().equals(
+                        "Invalid marks. Each mark must be between 0 and 100.")
+                        && ExamResultManagementSystem.getNextIdNumber() == 102,
+                "Unexpected invalid result: " + resInvalid.getMessage());
+
+        // 3. Add via pasted space-separated marks in Subject 1 field ("35 30 38")
+        OperationResult res2 = ExamResultManagementSystem.addResultFromInputs(list, "Mitali Roy", "35 30 38", "", "");
+        assertTrue("GUI Controller - Combined Marks Paste Support",
+                res2.isSuccess() && res2.getMessage().equals(
+                        "Result added. ID: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail"),
+                "Unexpected message: " + res2.getMessage());
+
+        // 4. Sort & format check
+        ExamResultManagementSystem.sortByPercentage(list);
+        String sortedText = ExamResultManagementSystem.formatSortedResults(list);
+        assertTrue("GUI Controller - Sorted Format Exact Match",
+                sortedText.equals("1. ER101 | Kiran Patel | 80.00 | Pass\n2. ER102 | Mitali Roy | 34.33 | Fail"),
+                "Unexpected sort output:\n" + sortedText);
+
+        // 5. Index lookup check for JTable row highlighting
+        int idx = ExamResultManagementSystem.findIndexById(list, "er102");
+        assertTrue("GUI Controller - Linear Index Lookup",
+                idx == 1,
+                "Expected index 1 for ER102 after sort, got " + idx);
+    }
+
+    /**
+     * Verifies handling of multiple records (50 students): add, sort high-to-low, and search.
+     */
+    private static void testMultipleRecordsScale() {
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+
+        for (int i = 0; i < 50; i++) {
+            int mark = (i * 2) % 101;
+            OperationResult r = ExamResultManagementSystem.createAndAddResult(
+                    list, "Student " + (i + 1), mark, mark, mark);
+            if (!r.isSuccess()) {
+                assertTrue("Multi-Record Scale - Insertion", false, "Failed at i=" + i);
+                return;
+            }
+        }
+
+        ExamResultManagementSystem.sortByPercentage(list);
+        boolean monotonicDescending = true;
+        for (int i = 0; i < list.size() - 1; i++) {
+            if (list.get(i).getPercentage() < list.get(i + 1).getPercentage()) {
+                monotonicDescending = false;
+                break;
+            }
+        }
+
+        StudentResult foundLastAdded = ExamResultManagementSystem.searchById(list, "ER150");
+        assertTrue("Multi-Record Scale - 50 Records Added, Sorted & Searched",
+                list.size() == 50 && monotonicDescending && foundLastAdded != null
+                        && foundLastAdded.getName().equals("Student 50"),
+                "Multi-record verification failed");
+    }
+
+    /**
+     * Verifies that the Swing Desktop GUI constructs, renders its table rows, and disposes cleanly.
+     */
+    private static void testSwingGuiInstantiation() {
+        if (java.awt.GraphicsEnvironment.isHeadless()) {
+            assertTrue("Swing GUI - Headless Safe Fallback", true, "Skipped window creation in headless mode");
+            return;
+        }
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+        ExamResultManagementSystem.createAndAddResult(list, "Kiran Patel", 80, 70, 90);
+        ExamResultManagementSystem.createAndAddResult(list, "Mitali Roy", 35, 30, 38);
+
+        ExamResultGUI gui = new ExamResultGUI(list, "test_gui_smoke.txt");
+        boolean validWindow = gui.getTitle().contains("Exam Result Management System")
+                && gui.getWidth() >= 1000;
+        gui.dispose();
+        new File("test_gui_smoke.txt").delete();
+
+        assertTrue("Swing GUI - Window & Components Constructed Cleanly",
+                validWindow,
+                "GUI window failed sanity check");
     }
 
     private static String runWithInput(ArrayList<StudentResult> list, String inputData) {
@@ -327,24 +424,5 @@ public class ExamResultManagementSystemTest {
 
     private static void cleanResultsFile() {
         // Intentionally does NOT touch the real results.txt: tests run fully in memory.
-    }
-
-    private static void testNameSanitizationAndExtraMarks() {
-        ExamResultManagementSystem.setNextIdNumber(101);
-        ArrayList<StudentResult> list = new ArrayList<>();
-        runWithInput(list, "1\nPatel, Kiran\n80 70 90\n5\n");
-        assertTrue("Edge Case - Comma in name is sanitized",
-                list.size() == 1 && list.get(0).getName().equals("Patel Kiran"),
-                "Name was not sanitized");
-        StudentResult reparsed = ExamResultManagementSystem.parseLine(list.get(0).toFileString());
-        assertTrue("Edge Case - Sanitized record survives file round trip",
-                reparsed != null && reparsed.getName().equals("Patel Kiran"),
-                "Record lost on reload");
-
-        ArrayList<StudentResult> list2 = new ArrayList<>();
-        String out = runWithInput(list2, "1\nA B\n80 70 90 999\n5\n");
-        assertTrue("Edge Case - More than 3 marks rejected",
-                list2.isEmpty() && out.contains("exactly 3 marks"),
-                "Extra marks were accepted");
     }
 }

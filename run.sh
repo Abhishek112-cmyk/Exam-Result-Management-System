@@ -1,4 +1,5 @@
 #!/bin/zsh
+cd "$(dirname "$0")"
 
 # Find Java runtime
 if [ -d "/Library/Java/JavaVirtualMachines/jdk-26.jdk/Contents/Home/bin" ]; then
@@ -21,5 +22,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Run
-java ExamResultManagementSystem
+# Run (pass --gui to open Desktop GUI, or no args for Console mode)
+java ExamResultManagementSystem "$@"
