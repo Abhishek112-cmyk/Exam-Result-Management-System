@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Exam Result Management System — Interactive Presentation (PS No. 48)</title>
+<style>
+  :root, [data-theme="dark"] {
+    --bg-primary: #090d16;
+    --bg-secondary: #0f172a;
+    --bg-card: rgba(30, 41, 59, 0.72);
+    --bg-card-solid: #1e293b;
+    --bg-code: #0b1120;
+    --border: rgba(148, 163, 184, 0.18);
+    --border-strong: rgba(96, 165, 250, 0.45);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #3b82f6;
+    --accent-2: #8b5cf6;
+    --accent-cyan: #06b6d4;
+    --pass: #22c55e;
+    --pass-bg: rgba(34, 197, 94, 0.15);
+    --fail: #ef4444;
+    --fail-bg: rgba(239, 68, 68, 0.15);
+    --warn: #f59e0b;
+    --warn-bg: rgba(245, 158, 11, 0.16);
+    --shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    --glow-1: rgba(59, 130, 246, 0.18);
+    --glow-2: rgba(139, 92, 246, 0.16);
+  }
+
+  [data-theme="light"] {
+    --bg-primary: #f1f5f9;
+    --bg-secondary: #ffffff;
+    --bg-card: rgba(255, 255, 255, 0.92);
+    --bg-card-solid: #ffffff;
+    --bg-code: #0f172a;
+    --border: rgba(15, 23, 42, 0.12);
+    --border-strong: rgba(37, 99, 235, 0.45);
+    --text-main: #0f172a;
+    --text-muted: #475569;
+    --accent: #2563eb;
+    --accent-2: #6d28d9;
+    --accent-cyan: #0891b2;
+    --pass: #15803d;
+    --pass-bg: rgba(22, 163, 74, 0.14);
+    --fail: #b91c1c;
+    --fail-bg: rgba(220, 38, 38, 0.12);
+    --warn: #b45309;
+    --warn-bg: rgba(245, 158, 11, 0.16);
+    --shadow: 0 16px 38px rgba(15, 23, 42, 0.09);
+    --glow-1: rgba(37, 99, 235, 0.10);
+    --glow-2: rgba(124, 58, 237, 0.08);
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-main);
+    transition: background 0.35s ease, color 0.35s ease;
+    user-select: none;
+  }
+
+  /* Ambient animated background orbs */
+  .ambient-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(circle at 14% 18%, var(--glow-1), transparent 42%),
+      radial-gradient(circle at 86% 80%, var(--glow-2), transparent 45%);
+  }
+
+  /* Top progress bar */
+  .progress-track {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: rgba(148, 163, 184, 0.15);
+    z-index: 50;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 8.33%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-cyan));
+    transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Top bar */
+  .topbar {
+    position: fixed;
+    top: 4px;
+    left: 0;
+    right: 0;
+    height: 52px;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 40;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(14px);
+    background: rgba(15, 23, 42, 0.45);
+  }
+  [data-theme="light"] .topbar {
+    background: rgba(255, 255, 255, 0.78);
+  }
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .topbar-pill {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.16);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.4px;
+  }
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-btn {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .icon-btn:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+
+  /* Deck Stage */
+  .deck {
+    position: fixed;
+    top: 56px;
+    bottom: 58px;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 28px 54px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(48px) scale(0.985);
+    transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    overflow-y: auto;
+  }
+  .slide.prev {
+    transform: translateX(-48px) scale(0.985);
+  }
+  .slide.active {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0) scale(1);
+  }
+
+  .slide-inner {
+    width: 100%;
+    max-width: 1220px;
+    margin: 0 auto;
+  }
+
+  /* Staggered animations inside active slide */
+  .slide.active .anim-1 { animation: fadeUp 0.5s 0.05s both cubic-bezier(0.22, 1, 0.36, 1); }
+  .slide.active .anim-2 { animation: fadeUp 0.5s 0.14s both cubic-bezier(0.22, 1, 0.36, 1); }
+  .slide.active .anim-3 { animation: fadeUp 0.5s 0.23s both cubic-bezier(0.22, 1, 0.36, 1); }
+  .slide.active .anim-4 { animation: fadeUp 0.5s 0.32s both cubic-bezier(0.22, 1, 0.36, 1); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Typography */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .slide-title {
+    font-size: clamp(26px, 3.1vw, 38px);
+    font-weight: 800;
+    letter-spacing: -0.6px;
+    line-height: 1.15;
+    margin-bottom: 10px;
+  }
+  .gradient-text {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-cyan));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .slide-lead {
+    font-size: 15.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    max-width: 880px;
+    margin-bottom: 20px;
+  }
+
+  /* Grid & Cards */
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+    transition: transform 0.22s ease, border-color 0.22s ease;
+  }
+  .card:hover {
+    border-color: var(--border-strong);
+  }
+  .card-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-body {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.52;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 700;
+  }
+  .badge-pass { background: var(--pass-bg); color: var(--pass); }
+  .badge-fail { background: var(--fail-bg); color: var(--fail); }
+  .badge-blue { background: rgba(59, 130, 246, 0.16); color: var(--accent); }
+  .badge-purple { background: rgba(139, 92, 246, 0.16); color: var(--accent-2); }
+  .badge-warn { background: var(--warn-bg); color: var(--warn); }
+
+  .code-block {
+    background: var(--bg-code);
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 12px;
+    padding: 13px 16px;
+    font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Courier New", monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-x: auto;
+    user-select: text;
+  }
+  .kw { color: #93c5fd; font-weight: 600; }
+  .str { color: #86efac; }
+  .num { color: #fcd34d; }
+  .cmt { color: #64748b; font-style: italic; }
+
+  /* Cover Slide Specifics */
+  .logo-pill {
+    display: inline-flex;
+    align-items: center;
+    background: #ffffff;
+    padding: 10px 20px;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    margin-bottom: 18px;
+  }
+  .logo-pill img {
+    height: 48px;
+    width: auto;
+    display: block;
+  }
+
+  /* Interactive Controls */
+  .sim-input {
+    padding: 9px 12px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-size: 13.5px;
+    width: 100%;
+    outline: none;
+  }
+  .sim-input:focus {
+    border-color: var(--accent);
+  }
+  .btn-primary {
+    padding: 9px 16px;
+    border-radius: 9px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .btn-primary:hover { transform: translateY(-1px); opacity: 0.95; }
+  .btn-secondary {
+    padding: 8px 13px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
+
+  /* Linear Search Array Cards */
+  .search-array {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .array-slot {
+    border: 2px solid var(--border);
+    background: var(--bg-secondary);
+    border-radius: 14px;
+    padding: 14px 12px;
+    text-align: center;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+  .array-slot.scanning {
+    border-color: var(--warn);
+    background: var(--warn-bg);
+    transform: translateY(-6px) scale(1.03);
+    box-shadow: 0 12px 26px rgba(245, 158, 11, 0.25);
+  }
+  .array-slot.matched {
+    border-color: var(--pass);
+    background: var(--pass-bg);
+    transform: translateY(-8px) scale(1.05);
+    box-shadow: 0 14px 30px rgba(34, 197, 94, 0.30);
+  }
+  .array-slot.checked {
+    opacity: 0.48;
+  }
+
+  /* Bubble Sort Bars */
+  .sort-arena {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    align-items: end;
+    height: 225px;
+    padding: 18px 14px 10px 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin: 12px 0;
+  }
+  .sort-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    transition: transform 0.35s ease;
+  }
+  .sort-bar {
+    width: 100%;
+    max-width: 96px;
+    border-radius: 10px 10px 4px 4px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    transition: height 0.38s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, transform 0.25s ease;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 8px;
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+  }
+  .sort-col.comparing .sort-bar {
+    background: linear-gradient(180deg, #f59e0b, #d97706);
+    transform: scaleX(1.06);
+  }
+  .sort-col.swapping .sort-bar {
+    background: linear-gradient(180deg, #ec4899, #be185d);
+    transform: translateY(-6px) scaleX(1.08);
+  }
+  .sort-col.sorted .sort-bar {
+    background: linear-gradient(180deg, #22c55e, #15803d);
+  }
+  .sort-meta {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  /* Tables */
+  table.pres-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.pres-table th {
+    text-align: left;
+    padding: 10px 12px;
+    background: rgba(59, 130, 246, 0.14);
+    color: var(--accent);
+    font-weight: 700;
+    border-bottom: 1px solid var(--border);
+  }
+  table.pres-table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-main);
+  }
+
+  /* Flow Pipeline */
+  .step-flow {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .step-node {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 14px;
+    position: relative;
+  }
+  .step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff;
+    font-weight: 800;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+
+  /* Bottom Navigation Bar */
+  .bottombar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 58px;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(14px);
+    background: rgba(15, 23, 42, 0.55);
+    z-index: 40;
+  }
+  [data-theme="light"] .bottombar {
+    background: rgba(255, 255, 255, 0.85);
+  }
+  .dots {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.35);
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+  .dot.active {
+    width: 26px;
+    background: var(--accent);
+  }
+  .nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Speaker Notes Drawer */
+  .notes-drawer {
+    position: fixed;
+    bottom: 68px;
+    right: 24px;
+    width: 420px;
+    max-width: calc(100vw - 48px);
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+    z-index: 60;
+    display: none;
+  }
+  .notes-drawer.open { display: block; }
+
+  /* Slide Overview Grid Modal */
+  .overview-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(9, 13, 22, 0.88);
+    backdrop-filter: blur(12px);
+    z-index: 80;
+    padding: 40px;
+    overflow-y: auto;
+    display: none;
+  }
+  .overview-modal.open { display: block; }
+  .overview-grid {
+    max-width: 1100px;
+    margin: 20px auto 0 auto;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .overview-item {
+    background: #1e293b;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 12px;
+    padding: 16px;
+    color: #f8fafc;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .overview-item:hover, .overview-item.current {
+    border-color: #3b82f6;
+    transform: translateY(-3px);
+  }
+
+  /* Viva Q&A Accordion */
+  .viva-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 11px 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+  }
+  .viva-card:hover { border-color: var(--accent); }
+  .viva-a {
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px dashed var(--border);
+    color: var(--text-muted);
+    font-size: 12.8px;
+    display: none;
+  }
+  .viva-card.open .viva-a { display: block; }
+
+  @media (max-width: 960px) {
+    .grid-2, .grid-3, .grid-4, .step-flow, .search-array {
+      grid-template-columns: 1fr;
+    }
+    .slide { padding: 20px; justify-content: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient-bg"></div>
+<div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <span class="topbar-pill">PS No. 48</span>
+    <span>Exam Result Management System · DSA Project</span>
+  </div>
+  <div class="topbar-actions">
+    <button class="icon-btn" onclick="toggleOverview()" title="Slide Grid (G)">☷ Slides (G)</button>
+    <button class="icon-btn" onclick="toggleNotes()" title="Speaker Notes (N)">📝 Notes (N)</button>
+    <button class="icon-btn" onclick="toggleTheme()" id="themeBtn" title="Switch Theme (T)">☀️ Light Mode</button>
+    <button class="icon-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">⛶ Fullscreen (F)</button>
+  </div>
+</header>
+
+<!-- SLIDE DECK -->
+<main class="deck" id="deck">
+
+  <!-- ==================== SLIDE 1: COVER ==================== -->
+  <section class="slide active" data-title="Title & Cover" data-notes="Good morning/afternoon! Today I am presenting my Data Structures & Algorithms project (PS No. 48): Exam Result Management System, built in Java using ArrayList, custom Linear Search, custom Bubble Sort, and File Handling.">
+    <div class="slide-inner" style="text-align:center;">
+      <div class="anim-1">
+        <div class="logo-pill">
+          <img src="data:image/png;base64,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" alt="Rungta International Skills University" />
+        </div>
+        <div>
+          <span class="badge badge-blue" style="margin-bottom:14px;">RU-200-01-00029 · DATA STRUCTURES &amp; ALGORITHMS · SESSION 2026-27</span>
+        </div>
+      </div>
+
+      <h1 class="slide-title anim-2" style="font-size:clamp(34px, 4.4vw, 54px); margin-bottom:12px;">
+        Exam Result <span class="gradient-text">Management System</span>
+      </h1>
+      <p class="slide-lead anim-2" style="margin:0 auto 28px auto; font-size:18px;">
+        (Using Java, <code>ArrayList</code>, Custom Linear Search, Custom Bubble Sort &amp; File Handling)
+      </p>
+
+      <div class="grid-2 anim-3" style="max-width:820px; margin:0 auto 24px auto; text-align:left;">
+        <div class="card">
+          <div style="font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--accent); font-weight:700;">Submitted By</div>
+          <div style="font-size:20px; font-weight:800; margin:4px 0 2px 0;">Abhishek Singh</div>
+          <div style="font-size:13.5px; color:var(--text-muted); font-weight:600;">ERP ID: RU-25-10061</div>
+          <div style="font-size:12.5px; color:var(--text-muted); margin-top:6px;">
+            B.Tech in Computer Science &amp; Engineering (AI &amp; ML)
+          </div>
+        </div>
+        <div class="card">
+          <div style="font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--accent-2); font-weight:700;">Under the Guidance of</div>
+          <div style="font-size:20px; font-weight:800; margin:4px 0 2px 0;">Mr. Surya Mani Verma</div>
+          <div style="font-size:13px; color:var(--text-muted); margin-top:6px;">
+            School of Computer Science &amp; Engineering<br/>
+            Rungta International Skills University, Bhilai
+          </div>
+        </div>
+      </div>
+
+      <div class="anim-4" style="font-size:12.5px; color:var(--text-muted);">
+        Press <strong>→</strong> or <strong>Space</strong> to navigate &nbsp;·&nbsp; <strong>F</strong> for Fullscreen &nbsp;·&nbsp; <strong>T</strong> for Light/Dark Projector Mode
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 2: PROBLEM STATEMENT ==================== -->
+  <section class="slide" data-title="Problem Statement" data-notes="Explain the goal of PS No. 48: manage exam results in 3 subjects out of 100, start IDs at ER101, pass threshold at 40%, write sorting and searching manually without built-in library methods, and persist data to results.txt.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">01 · Problem Definition (PS No. 48)</div>
+      <h2 class="slide-title anim-1">Problem Statement &amp; <span class="gradient-text">Core Rules</span></h2>
+      <p class="slide-lead anim-2">
+        Educational institutions need an accurate, fast way to record subject marks, validate boundaries, compute percentages &amp; Pass/Fail status, search by ID, rank students, and persist records across sessions.
+      </p>
+
+      <div class="grid-3 anim-3">
+        <div class="card">
+          <div class="card-title"><span class="badge badge-blue">Rule 1</span> Sequential IDs</div>
+          <div class="card-body">
+            First generated Result ID is <strong><code>ER101</code></strong>, incrementing automatically (<code>ER102</code>, <code>ER103</code>, …) and resuming from the highest saved ID at startup.
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="badge badge-pass">Rule 2</span> Marks &amp; Pass Rule</div>
+          <div class="card-body">
+            <strong>3 Subjects</strong>, each scored strictly in <strong><code>[0, 100]</code></strong>. Total out of <code>300</code>. Student <strong>Passes</strong> if <code>Percentage &ge; 40.00%</code>, else <strong>Fails</strong>.
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="badge badge-purple">Rule 3</span> Custom DSA Logic</div>
+          <div class="card-body">
+            Records stored as objects in <code>ArrayList&lt;StudentResult&gt;</code>. Searching &amp; Sorting are <strong>written from scratch</strong> (zero built-in sort/search calls).
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2 anim-4" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-title">📋 Menu Operations</div>
+          <div class="card-body">
+            <code>1</code> Add Result &nbsp;|&nbsp; <code>2</code> Display All &nbsp;|&nbsp; <code>3</code> Search by ID &nbsp;|&nbsp; <code>4</code> Sort by Percentage (High &rarr; Low) &nbsp;|&nbsp; <code>5</code> Save &amp; Exit
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">💾 Persistent File Storage + Dual UI</div>
+          <div class="card-body">
+            Loads <code>results.txt</code> automatically on startup and saves on exit. Packaged in <strong>one <code>.java</code> file</strong> supporting both <strong>Console Mode</strong> &amp; <strong>Java Swing Desktop GUI</strong>.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 3: TECH STACK ==================== -->
+  <section class="slide" data-title="Tech Stack" data-notes="Highlight that this is a pure Core Java project without external frameworks or databases—every data structure and algorithm is transparent and built using standard JDK packages.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">02 · Tools &amp; Technologies</div>
+      <h2 class="slide-title anim-1">Technology Stack &amp; <span class="gradient-text">DSA Concepts</span></h2>
+      <p class="slide-lead anim-2">
+        Built in pure Core Java with zero external dependencies—keeping focus 100% on Object-Oriented Programming and foundational Data Structures &amp; Algorithms.
+      </p>
+
+      <div class="grid-4 anim-3">
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">☕</div>
+          <div class="card-title">Java (JDK 8–26)</div>
+          <div class="card-body">OOP classes, constructors, encapsulation, exception handling, and formatted output.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">📦</div>
+          <div class="card-title">ArrayList&lt;T&gt;</div>
+          <div class="card-body">Dynamic array backing store with amortized <code>O(1)</code> append and <code>O(1)</code> index access for swaps.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">🔍</div>
+          <div class="card-title">Linear Search</div>
+          <div class="card-body">Hand-written sequential scan <code>O(N)</code> with case-insensitive Result ID matching.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">📊</div>
+          <div class="card-title">Bubble Sort</div>
+          <div class="card-body">In-place descending sort <code>O(N²)</code> with adaptive <code>swapped</code> early-exit flag (<code>O(N)</code> best case).</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">📄</div>
+          <div class="card-title">Java File I/O</div>
+          <div class="card-body"><code>BufferedReader</code> &amp; <code>BufferedWriter</code> for fast line-by-line CSV persistence in <code>results.txt</code>.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">🖥️</div>
+          <div class="card-title">Java Swing GUI</div>
+          <div class="card-body">Interactive desktop window (<code>JFrame</code>, <code>JTable</code>, live log, one-click reset) alongside Console mode.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">✅</div>
+          <div class="card-title">Test Harness</div>
+          <div class="card-body">Custom automated suite (<code>32/32</code> assertions) verifying all 4 official test cases &amp; edge cases.</div>
+        </div>
+        <div class="card">
+          <div style="font-size:24px; margin-bottom:8px;">🔧</div>
+          <div class="card-title">Git &amp; Shell</div>
+          <div class="card-body">Version control with Git/GitHub plus one-click macOS launchers (<code>run.sh</code>, <code>app.sh</code>, <code>test.sh</code>).</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 4: ARCHITECTURE & UML ==================== -->
+  <section class="slide" data-title="Architecture & Classes" data-notes="Click each of the 4 class cards on the left to show the teacher its exact fields and methods inside ExamResultManagementSystem.java.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">03 · Object-Oriented Design</div>
+      <h2 class="slide-title anim-1">Single-File <span class="gradient-text">Class Architecture</span></h2>
+      <p class="slide-lead anim-2" style="margin-bottom:14px;">
+        All four cohesive classes reside inside <code>ExamResultManagementSystem.java</code>. <strong>Click any class below</strong> to inspect its fields and methods:
+      </p>
+
+      <div class="grid-2 anim-3" style="align-items:stretch;">
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="card" style="cursor:pointer; padding:14px 16px;" onclick="showClassDetail('sr')" id="cls-sr">
+            <div class="card-title"><span class="badge badge-blue">Model</span> StudentResult</div>
+            <div class="card-body">Encapsulates one student's marks, auto-computes total/percentage/Pass-Fail in constructor.</div>
+          </div>
+          <div class="card" style="cursor:pointer; padding:14px 16px;" onclick="showClassDetail('sys')" id="cls-sys">
+            <div class="card-title"><span class="badge badge-purple">Core Engine</span> ExamResultManagementSystem</div>
+            <div class="card-body">Owns <code>ArrayList&lt;StudentResult&gt;</code>, ID generator, Linear Search, Bubble Sort &amp; File I/O.</div>
+          </div>
+          <div class="card" style="cursor:pointer; padding:14px 16px;" onclick="showClassDetail('op')" id="cls-op">
+            <div class="card-title"><span class="badge badge-warn">Result Wrapper</span> OperationResult</div>
+            <div class="card-body">Shares validation outcome &amp; exact output strings cleanly between Console and GUI.</div>
+          </div>
+          <div class="card" style="cursor:pointer; padding:14px 16px;" onclick="showClassDetail('gui')" id="cls-gui">
+            <div class="card-title"><span class="badge badge-pass">Desktop View</span> ExamResultGUI (extends JFrame)</div>
+            <div class="card-body">Interactive Swing form, JTable view, search highlight, Clear All button &amp; output console.</div>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div class="badge badge-blue" id="umlBadge" style="margin-bottom:8px;">Selected Class</div>
+            <h3 id="umlTitle" style="font-size:20px; margin-bottom:8px;">StudentResult</h3>
+            <p id="umlDesc" style="font-size:13.5px; color:var(--text-muted); margin-bottom:12px;">
+              Models an individual student exam record. Constructor guarantees total, percentage, and Pass/Fail are always consistent with the 3 subject marks.
+            </p>
+          </div>
+          <pre class="code-block" id="umlCode">class StudentResult {
+  - String id, name, result;
+  - int mark1, mark2, mark3, total;
+  - double percentage;
+
+  + StudentResult(id, name, m1, m2, m3)
+  + toFullDetailString() : String
+  + toSortString()       : String
+  + toFileString()       : String
+}</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 5: PROGRAM FLOW ==================== -->
+  <section class="slide" data-title="Execution Flow" data-notes="Walk through the 5 stages from startup file loading to exit persistence, emphasizing the JVM shutdown hook that prevents data loss.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">04 · Methodology</div>
+      <h2 class="slide-title anim-1">End-to-End <span class="gradient-text">Program Execution Flow</span></h2>
+      <p class="slide-lead anim-2">
+        From startup file recovery to interactive DSA operations and crash-safe persistence:
+      </p>
+
+      <div class="step-flow anim-3">
+        <div class="step-node">
+          <div class="step-num">1</div>
+          <div class="card-title" style="font-size:14.5px;">Startup Load</div>
+          <div class="card-body" style="font-size:12.8px;">
+            <code>loadResultsFromFile()</code> parses <code>results.txt</code> into <code>ArrayList</code>. Missing file starts cleanly at empty list.
+          </div>
+        </div>
+        <div class="step-node">
+          <div class="step-num">2</div>
+          <div class="card-title" style="font-size:14.5px;">ID Continuity</div>
+          <div class="card-body" style="font-size:12.8px;">
+            <code>updateNextIdNumber()</code> finds highest <code>ER</code> number and sets <code>nextId = max + 1</code> (or <code>ER101</code> if empty).
+          </div>
+        </div>
+        <div class="step-node">
+          <div class="step-num">3</div>
+          <div class="card-title" style="font-size:14.5px;">Validate &amp; Add</div>
+          <div class="card-body" style="font-size:12.8px;">
+            Checks 3 marks in <code>[0, 100]</code>. Rejects invalid marks without wasting an ID; computes Total, % &amp; Pass/Fail.
+          </div>
+        </div>
+        <div class="step-node">
+          <div class="step-num">4</div>
+          <div class="card-title" style="font-size:14.5px;">Search &amp; Sort</div>
+          <div class="card-body" style="font-size:12.8px;">
+            Runs hand-written <code>searchById()</code> (Linear Search) or <code>sortByPercentage()</code> (Bubble Sort High&rarr;Low).
+          </div>
+        </div>
+        <div class="step-node">
+          <div class="step-num">5</div>
+          <div class="card-title" style="font-size:14.5px;">Save on Exit</div>
+          <div class="card-body" style="font-size:12.8px;">
+            Writes CSV lines to <code>results.txt</code> on Option 5, window close, or JVM <code>ShutdownHook</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="code-block anim-4" style="margin-top:18px;">
+<span class="cmt">// Automatic computation inside StudentResult constructor:</span>
+<span class="kw">this</span>.total = mark1 + mark2 + mark3;                       <span class="cmt">// Out of 300</span>
+<span class="kw">this</span>.percentage = (<span class="kw">this</span>.total * <span class="num">100.0</span>) / <span class="num">300.0</span>;          <span class="cmt">// Floating-point division (e.g. 34.33)</span>
+<span class="kw">this</span>.result = (<span class="kw">this</span>.percentage &gt;= <span class="num">40.0</span>) ? <span class="str">"Pass"</span> : <span class="str">"Fail"</span>; <span class="cmt">// Boundary 40.00% -> Pass</span></div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 6: LIVE ADD RESULT SIMULATOR ==================== -->
+  <section class="slide" data-title="Live Simulator: Add Result" data-notes="Interactive Demo! Click the 4 preset buttons (TC1 Normal, TC2 Boundary 40 40 40, TC3 Invalid 105, TC4 Fail) to show live validation and exact console output!">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">05 · Interactive Feature Demo</div>
+      <h2 class="slide-title anim-1">Feature 1: <span class="gradient-text">Add Result &amp; Live Validator</span></h2>
+      <p class="slide-lead anim-2" style="margin-bottom:14px;">
+        Try the official test cases live or enter custom marks to test boundary validation (<code>0–100</code>) and the <code>40%</code> pass threshold:
+      </p>
+
+      <div class="grid-2 anim-3">
+        <div class="card">
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;">
+            <button class="btn-secondary" onclick="fillPreset('Kiran Patel',80,70,90)">TC1: Normal (80 70 90)</button>
+            <button class="btn-secondary" onclick="fillPreset('Lalit Soni',40,40,40)">TC2: Boundary (40 40 40)</button>
+            <button class="btn-secondary" onclick="fillPreset('Kiran Patel',80,105,90)">TC3: Invalid (80 105 90)</button>
+            <button class="btn-secondary" onclick="fillPreset('Mitali Roy',35,30,38)">TC4: Fail (35 30 38)</button>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted); font-weight:600;">Student Name</label>
+            <input class="sim-input" id="simName" value="Kiran Patel" />
+          </div>
+          <div class="grid-3" style="margin-bottom:12px;">
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600;">Subject 1 (/100)</label>
+              <input class="sim-input" id="simM1" type="number" value="80" />
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600;">Subject 2 (/100)</label>
+              <input class="sim-input" id="simM2" type="number" value="70" />
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); font-weight:600;">Subject 3 (/100)</label>
+              <input class="sim-input" id="simM3" type="number" value="90" />
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-primary" onclick="runAddSim()">▶ Evaluate &amp; Generate Output</button>
+            <button class="btn-secondary" onclick="resetSimCounter()">Reset ID to ER101</button>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <span style="font-size:13px; font-weight:700; color:var(--text-muted);">LIVE EVALUATION METRICS</span>
+              <span class="badge badge-blue" id="simNextIdBadge">Next ID: ER102</span>
+            </div>
+            <div class="grid-3" style="margin-bottom:14px;">
+              <div style="padding:12px; border-radius:10px; background:var(--bg-secondary); text-align:center;">
+                <div style="font-size:11px; color:var(--text-muted);">TOTAL</div>
+                <div style="font-size:22px; font-weight:800;" id="simTotal">240/300</div>
+              </div>
+              <div style="padding:12px; border-radius:10px; background:var(--bg-secondary); text-align:center;">
+                <div style="font-size:11px; color:var(--text-muted);">PERCENTAGE</div>
+                <div style="font-size:22px; font-weight:800;" id="simPct">80.00%</div>
+              </div>
+              <div style="padding:12px; border-radius:10px; background:var(--bg-secondary); text-align:center;">
+                <div style="font-size:11px; color:var(--text-muted);">RESULT</div>
+                <div style="font-size:22px; font-weight:800; color:var(--pass);" id="simRes">Pass</div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:6px; font-weight:600;">EXACT SYSTEM OUTPUT:</div>
+            <div class="code-block" id="simOutput" style="font-size:12px;">Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 7: LIVE LINEAR SEARCH VISUALIZER ==================== -->
+  <section class="slide" data-title="Visualizer: Linear Search" data-notes="Demonstrate Linear Search live! Click Search on ER104 or ER999 (Not Found) and watch index i scan sequentially from left to right. Explain why Binary Search cannot be used when the list is sorted by percentage instead of ID.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">06 · Algorithm Animation</div>
+      <h2 class="slide-title anim-1">Feature 3: <span class="gradient-text">Custom Linear Search (by ID)</span></h2>
+      <p class="slide-lead anim-2" style="margin-bottom:10px;">
+        Scans <code>ArrayList&lt;StudentResult&gt;</code> sequentially from <code>i = 0</code> to <code>n - 1</code> using case-insensitive ID matching (<code>O(N)</code> time, <code>O(1)</code> space):
+      </p>
+
+      <div class="card anim-3">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input class="sim-input" id="searchInput" value="ER104" style="width:140px; font-weight:700;" placeholder="e.g. ER104" />
+            <button class="btn-primary" onclick="animateLinearSearch()">🔍 Animate Linear Search</button>
+            <button class="btn-secondary" onclick="quickSearch('ER101')">Best Case (ER101)</button>
+            <button class="btn-secondary" onclick="quickSearch('er104')">Case-Insensitive (er104)</button>
+            <button class="btn-secondary" onclick="quickSearch('ER999')">Not Found (ER999)</button>
+          </div>
+          <span class="badge badge-warn" id="searchStepBadge">Ready · O(N) Sequential Scan</span>
+        </div>
+
+        <div class="search-array" id="searchArrayContainer"></div>
+
+        <div class="code-block" id="searchLogBox">Click "Animate Linear Search" to watch index i inspect each StudentResult object in the ArrayList.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 8: LIVE BUBBLE SORT VISUALIZER ==================== -->
+  <section class="slide" data-title="Visualizer: Bubble Sort" data-notes="Click Auto-Play Bubble Sort! Show the teacher how adjacent student percentages are compared, smaller values bubble right, and the swapped boolean flag stops early once sorted.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">07 · Algorithm Animation</div>
+      <h2 class="slide-title anim-1">Feature 4: <span class="gradient-text">In-Place Bubble Sort (High &rarr; Low)</span></h2>
+      <p class="slide-lead anim-2" style="margin-bottom:10px;">
+        Compares adjacent elements (<code>list.get(j).getPercentage() &lt; list.get(j+1).getPercentage()</code>) and swaps in-place with an early-exit <code>swapped</code> flag:
+      </p>
+
+      <div class="card anim-3">
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn-primary" id="sortPlayBtn" onclick="autoPlayBubbleSort()">▶ Auto-Play Bubble Sort</button>
+            <button class="btn-secondary" onclick="stepBubbleSort()">Step Once &rarr;</button>
+            <button class="btn-secondary" onclick="resetBubbleSort()">↺ Reset Unsorted ArrayList</button>
+          </div>
+          <span class="badge badge-purple" id="sortStatusBadge">Unsorted · Pass 0</span>
+        </div>
+
+        <div class="sort-arena" id="sortArena"></div>
+
+        <div class="code-block" id="sortLogBox">Press "Auto-Play Bubble Sort" or "Step Once" to animate adjacent comparisons and swaps.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 9: FILE PERSISTENCE ==================== -->
+  <section class="slide" data-title="File Handling (results.txt)" data-notes="Explain how results.txt keeps records safe between sessions without needing an external SQL database, plus the Clear All Saved Records button in the GUI.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">08 · Data Persistence</div>
+      <h2 class="slide-title anim-1">File Handling with <span class="gradient-text"><code>results.txt</code></span></h2>
+      <p class="slide-lead anim-2">
+        Zero data loss across restarts using buffered character streams and multi-format defensive parsing.
+      </p>
+
+      <div class="grid-2 anim-3">
+        <div class="card">
+          <div class="card-title">📥 Startup Load (<code>BufferedReader</code>)</div>
+          <div class="card-body" style="margin-bottom:10px;">
+            Reads <code>results.txt</code> line-by-line, rebuilds <code>StudentResult</code> objects, skips any malformed lines safely via <code>try-catch</code>, and updates <code>nextIdNumber</code> to <code>maxId + 1</code>.
+          </div>
+          <div class="code-block">ER101,Kiran Patel,80,70,90,240,80.00,Pass
+ER102,Mitali Roy,35,30,38,103,34.33,Fail
+ER103,Lalit Soni,40,40,40,120,40.00,Pass</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">📤 Exit Save &amp; Crash Protection (<code>BufferedWriter</code>)</div>
+          <div class="card-body">
+            <ul style="padding-left:18px; line-height:1.7;">
+              <li><strong>Menu Option 5 / Window Close:</strong> Writes every record via <code>toFileString()</code> to <code>results.txt</code>.</li>
+              <li><strong>JVM Shutdown Hook:</strong> <code>Runtime.getRuntime().addShutdownHook(...)</code> saves data even on unexpected <code>Ctrl+C</code> exit.</li>
+              <li><strong>try-with-resources:</strong> Automatically flushes &amp; closes file handles without memory leaks.</li>
+              <li><strong>One-Click Reset in GUI:</strong> <em>Clear All Saved Records</em> wipes <code>results.txt</code> and resets ID back to <code>ER101</code>.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 10: COMPLEXITY ANALYSIS ==================== -->
+  <section class="slide" data-title="Complexity Analysis" data-notes="Teachers always ask Big-O in DSA vivas! Point out O(N) best case on Bubble Sort thanks to our swapped flag, and O(1) auxiliary space because both search and sort run in-place.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">09 · Performance Evaluation</div>
+      <h2 class="slide-title anim-1">Time &amp; Space <span class="gradient-text">Complexity Analysis</span></h2>
+      <p class="slide-lead anim-2">
+        Let <strong><code>N</code></strong> be the number of student records stored in <code>ArrayList&lt;StudentResult&gt;</code>:
+      </p>
+
+      <div class="card anim-3" style="padding:0; overflow:hidden;">
+        <table class="pres-table">
+          <thead>
+            <tr>
+              <th>Operation</th>
+              <th>Underlying Algorithm / Structure</th>
+              <th>Best Case</th>
+              <th>Average / Worst Case</th>
+              <th>Auxiliary Space</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>1. Add Result</strong></td>
+              <td><code>ArrayList.add()</code> + Validation</td>
+              <td><span class="badge badge-pass">O(1)</span></td>
+              <td><span class="badge badge-pass">O(1) amortized</span></td>
+              <td><code>O(1)</code></td>
+            </tr>
+            <tr>
+              <td><strong>2. Display All</strong></td>
+              <td>Sequential Index Iteration</td>
+              <td><span class="badge badge-blue">O(N)</span></td>
+              <td><span class="badge badge-blue">O(N)</span></td>
+              <td><code>O(1)</code></td>
+            </tr>
+            <tr>
+              <td><strong>3. Search by ID</strong></td>
+              <td>Custom <strong>Linear Search</strong></td>
+              <td><span class="badge badge-pass">O(1)</span> (head match)</td>
+              <td><span class="badge badge-blue">O(N)</span> (tail / absent)</td>
+              <td><code>O(1)</code></td>
+            </tr>
+            <tr>
+              <td><strong>4. Sort by %</strong></td>
+              <td>Custom Adaptive <strong>Bubble Sort</strong></td>
+              <td><span class="badge badge-blue">O(N)</span> (already sorted)</td>
+              <td><span class="badge badge-warn">O(N²)</span> (reverse sorted)</td>
+              <td><code>O(1)</code> (in-place)</td>
+            </tr>
+            <tr>
+              <td><strong>5. File Load / Save</strong></td>
+              <td><code>BufferedReader</code> / <code>BufferedWriter</code></td>
+              <td><span class="badge badge-blue">O(N)</span></td>
+              <td><span class="badge badge-blue">O(N)</span></td>
+              <td><code>O(N)</code> storage</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 11: TEST CASES & VERIFICATION ==================== -->
+  <section class="slide" data-title="Testing & Results" data-notes="All 4 official test cases from the problem sheet match character-for-character, backed by 32/32 automated unit and GUI tests.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">10 · Quality Assurance</div>
+      <h2 class="slide-title anim-1">Test Cases &amp; <span class="gradient-text">32 / 32 Automated Verification</span></h2>
+
+      <div class="card anim-2" style="padding:0; overflow:hidden; margin-bottom:14px;">
+        <table class="pres-table">
+          <thead>
+            <tr>
+              <th>Test Case</th>
+              <th>Input</th>
+              <th>Exact Verified Output</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>TC 1: Normal</strong></td>
+              <td><code>Kiran Patel</code> · <code>80 70 90</code></td>
+              <td><code>Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass</code></td>
+              <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td><strong>TC 2: Boundary</strong></td>
+              <td><code>Lalit Soni</code> · <code>40 40 40</code></td>
+              <td><code>Result added. ID: ER101 | Lalit Soni | Total: 120/300 | Percentage: 40.00 | Result: Pass</code></td>
+              <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td><strong>TC 3: Invalid</strong></td>
+              <td><code>Kiran Patel</code> · <code>80 105 90</code></td>
+              <td><code>Invalid marks. Each mark must be between 0 and 100.</code> <em>(ER101 preserved)</em></td>
+              <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td><strong>TC 4(a): Fail</strong></td>
+              <td><code>Mitali Roy</code> · <code>35 30 38</code></td>
+              <td><code>Result added. ID: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail</code></td>
+              <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+            <tr>
+              <td><strong>TC 4(b) &amp; (c)</strong></td>
+              <td>Option <code>4</code> Sort · Option <code>3</code> <code>ER102</code></td>
+              <td><code>1. ER101 (80.00) &rarr; 2. ER102 (34.33)</code> &nbsp;|&nbsp; <code>Found: ER102 | Mitali Roy ...</code></td>
+              <td><span class="badge badge-pass">PASS</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid-3 anim-3">
+        <div class="card" style="padding:13px 16px;">
+          <div class="card-title" style="font-size:14px;">🧪 32 / 32 Unit Checks</div>
+          <div class="card-body" style="font-size:12.5px;">Covers negative marks, &gt;3 marks, comma sanitization, file round-trips &amp; 50-record batch sort.</div>
+        </div>
+        <div class="card" style="padding:13px 16px;">
+          <div class="card-title" style="font-size:14px;">📅 7-Day Schedule</div>
+          <div class="card-body" style="font-size:12.5px;">Day 1 Design &rarr; Days 2-3 ArrayList &rarr; Days 3-4 Search/Sort &rarr; Days 4-5 File/GUI &rarr; Days 5-7 Tests &amp; Report.</div>
+        </div>
+        <div class="card" style="padding:13px 16px;">
+          <div class="card-title" style="font-size:14px;">🚀 Live App Demo Ready</div>
+          <div class="card-body" style="font-size:12.5px;">Launch Desktop GUI via <code>./app.sh</code>, Console via <code>./run.sh</code>, or Test Suite via <code>./test.sh</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 12: FUTURE SCOPE, VIVA & CONCLUSION ==================== -->
+  <section class="slide" data-title="Future Scope & Viva Q&A" data-notes="Conclude confidently and invite questions! You can click any Viva Question card on the right to reveal a crisp answer during Q&A.">
+    <div class="slide-inner">
+      <div class="eyebrow anim-1">11 · Conclusion &amp; Q&amp;A</div>
+      <h2 class="slide-title anim-1">Future Scope &amp; <span class="gradient-text">Interactive Viva Q&amp;A</span></h2>
+
+      <div class="grid-2 anim-2">
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div class="card">
+            <div class="card-title">🚀 Future Enhancements</div>
+            <div class="card-body">
+              <ul style="padding-left:18px; line-height:1.65;">
+                <li><strong>Update &amp; Delete by ID:</strong> Modify individual subject marks or remove a single record.</li>
+                <li><strong>Scalable DSA Upgrade:</strong> <code>Merge Sort O(N log N)</code> for large datasets + <code>HashMap&lt;String, StudentResult&gt;</code> for <code>O(1)</code> ID lookup.</li>
+                <li><strong>Database &amp; Reports:</strong> MySQL/PostgreSQL storage and downloadable PDF marksheets with grades (A+, A, B).</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="card" style="background:linear-gradient(135deg, rgba(59,130,246,0.18), rgba(139,92,246,0.18)); border-color:var(--border-strong);">
+            <div style="font-size:20px; font-weight:800; margin-bottom:4px;">Thank You! Any Questions?</div>
+            <div style="font-size:13.5px; color:var(--text-muted);">
+              <strong>Abhishek Singh</strong> (ERP ID: RU-25-10061) &nbsp;·&nbsp; Guided by <strong>Mr. Surya Mani Verma</strong><br/>
+              Rungta International Skills University, Bhilai
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="margin-bottom:10px;">💡 Quick Viva Reference (Click a Question)</div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="viva-card" onclick="this.classList.toggle('open')">
+              <div style="font-size:13px; font-weight:700;">1. Why use ArrayList instead of a standard Java array?</div>
+              <div class="viva-a">Standard arrays have fixed capacity. <code>ArrayList</code> resizes dynamically as new students are added while still giving <code>O(1)</code> index access (<code>get</code>/<code>set</code>) needed for in-place Bubble Sort swaps.</div>
+            </div>
+            <div class="viva-card" onclick="this.classList.toggle('open')">
+              <div style="font-size:13px; font-weight:700;">2. Why Linear Search instead of Binary Search for IDs?</div>
+              <div class="viva-a">Binary Search requires records to remain sorted by ID. Once the user runs Option 4 (Sort by Percentage), records are ordered by marks rather than ID—Linear Search works reliably in any order.</div>
+            </div>
+            <div class="viva-card" onclick="this.classList.toggle('open')">
+              <div style="font-size:13px; font-weight:700;">3. How does Bubble Sort achieve O(N) in the best case?</div>
+              <div class="viva-a">A boolean <code>swapped</code> flag tracks whether any swap occurred during a pass. If a pass finishes with <code>swapped == false</code>, the list is already sorted and the loop breaks immediately in <code>O(N)</code>.</div>
+            </div>
+            <div class="viva-card" onclick="this.classList.toggle('open')">
+              <div style="font-size:13px; font-weight:700;">4. Why divide by 300.0 instead of 300 in percentage calculation?</div>
+              <div class="viva-a">Integer division truncates decimals (<code>103 * 100 / 300 = 34</code>). Using floating-point <code>100.0 / 300.0</code> preserves exact precision (<code>34.33%</code>).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- SPEAKER NOTES DRAWER -->
+<aside class="notes-drawer" id="notesDrawer">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+    <span style="font-size:11.5px; font-weight:800; text-transform:uppercase; color:var(--accent);">🎤 Speaker Talking Points</span>
+    <button class="icon-btn" style="padding:2px 8px;" onclick="toggleNotes()">✕</button>
+  </div>
+  <div id="notesContent" style="font-size:13px; color:var(--text-muted); line-height:1.5;"></div>
+</aside>
+
+<!-- SLIDE OVERVIEW MODAL -->
+<div class="overview-modal" id="overviewModal">
+  <div style="max-width:1100px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; color:#fff;">
+    <h3 style="font-size:20px;">All Slides Overview (Click to Jump)</h3>
+    <button class="icon-btn" onclick="toggleOverview()">✕ Close (Esc)</button>
+  </div>
+  <div class="overview-grid" id="overviewGrid"></div>
+</div>
+
+<!-- BOTTOM NAVIGATION BAR -->
+<footer class="bottombar">
+  <div style="font-size:13px; font-weight:700; color:var(--text-muted);" id="slideCounter">01 / 12</div>
+  <div class="dots" id="dotsContainer"></div>
+  <div class="nav-controls">
+    <button class="icon-btn" onclick="prevSlide()">&larr; Prev</button>
+    <button class="btn-primary" style="padding:7px 16px;" onclick="nextSlide()">Next &rarr;</button>
+  </div>
+</footer>
+
+<script>
+  // ==================== DECK NAVIGATION ====================
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const totalSlides = slides.length;
+  let currentSlide = 0;
+
+  const progressFill = document.getElementById('progressFill');
+  const slideCounter = document.getElementById('slideCounter');
+  const dotsContainer = document.getElementById('dotsContainer');
+  const notesContent = document.getElementById('notesContent');
+  const overviewGrid = document.getElementById('overviewGrid');
+
+  function initNav() {
+    dotsContainer.innerHTML = '';
+    overviewGrid.innerHTML = '';
+    slides.forEach((s, idx) => {
+      const dot = document.createElement('div');
+      dot.className = 'dot' + (idx === 0 ? ' active' : '');
+      dot.title = `${idx + 1}. ${s.dataset.title}`;
+      dot.onclick = () => goToSlide(idx);
+      dotsContainer.appendChild(dot);
+
+      const item = document.createElement('div');
+      item.className = 'overview-item' + (idx === 0 ? ' current' : '');
+      item.innerHTML = `<div style="font-size:11px; color:#60a5fa; font-weight:700; margin-bottom:4px;">SLIDE ${String(idx + 1).padStart(2, '0')}</div>
+                        <div style="font-size:14px; font-weight:700;">${s.dataset.title}</div>`;
+      item.onclick = () => { goToSlide(idx); toggleOverview(); };
+      overviewGrid.appendChild(item);
+    });
+    updateNavUI();
+  }
+
+  function goToSlide(index) {
+    if (index < 0 || index >= totalSlides) return;
+    slides.forEach((s, idx) => {
+      s.classList.remove('active', 'prev');
+      if (idx < index) s.classList.add('prev');
+    });
+    currentSlide = index;
+    slides[currentSlide].classList.add('active');
+    updateNavUI();
+  }
+
+  function updateNavUI() {
+    const pct = ((currentSlide + 1) / totalSlides) * 100;
+    progressFill.style.width = pct + '%';
+    slideCounter.textContent = `${String(currentSlide + 1).padStart(2, '0')} / ${String(totalSlides).padStart(2, '0')}  ·  ${slides[currentSlide].dataset.title}`;
+    notesContent.textContent = slides[currentSlide].dataset.notes || '';
+
+    Array.from(dotsContainer.children).forEach((d, i) => d.classList.toggle('active', i === currentSlide));
+    Array.from(overviewGrid.children).forEach((o, i) => o.classList.toggle('current', i === currentSlide));
+  }
+
+  function nextSlide() { goToSlide(currentSlide + 1); }
+  function prevSlide() { goToSlide(currentSlide - 1); }
+
+  document.addEventListener('keydown', (e) => {
+    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea') return;
+
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      nextSlide();
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      prevSlide();
+    } else if (e.key === 'f' || e.key === 'F') {
+      toggleFullscreen();
+    } else if (e.key === 't' || e.key === 'T') {
+      toggleTheme();
+    } else if (e.key === 'n' || e.key === 'N') {
+      toggleNotes();
+    } else if (e.key === 'g' || e.key === 'G') {
+      toggleOverview();
+    } else if (e.key === 'Escape') {
+      document.getElementById('overviewModal').classList.remove('open');
+      document.getElementById('notesDrawer').classList.remove('open');
+    }
+  });
+
+  function toggleTheme() {
+    const htmlEl = document.documentElement;
+    const next = htmlEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    htmlEl.setAttribute('data-theme', next);
+    document.getElementById('themeBtn').textContent = next === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  function toggleNotes() {
+    document.getElementById('notesDrawer').classList.toggle('open');
+  }
+
+  function toggleOverview() {
+    document.getElementById('overviewModal').classList.toggle('open');
+  }
+
+  // ==================== SLIDE 4: INTERACTIVE UML INSPECTOR ====================
+  const classInfo = {
+    sr: {
+      badge: 'Model Class',
+      title: 'StudentResult',
+      desc: 'Models an individual student exam record. Constructor guarantees total, percentage, and Pass/Fail are always consistent with the 3 subject marks.',
+      code: `class StudentResult {
+  - String id, name, result;
+  - int mark1, mark2, mark3, total;
+  - double percentage;
+
+  + StudentResult(id, name, m1, m2, m3)
+  + toFullDetailString() : String
+  + toSortString()       : String
+  + toFileString()       : String
+}`
+    },
+    sys: {
+      badge: 'Core DSA Controller',
+      title: 'ExamResultManagementSystem',
+      desc: 'Main public class managing ArrayList<StudentResult>, sequential ID counter (ER101+), custom Linear Search, custom Bubble Sort, Console menu, and results.txt persistence.',
+      code: `public class ExamResultManagementSystem {
+  + static final String FILE_NAME = "results.txt";
+  - static int nextIdNumber = 101;
+
+  + addResult(Scanner, ArrayList)          : void
+  + displayAll(ArrayList)                  : void
+  + searchById(ArrayList, String)          : StudentResult
+  + sortByPercentage(ArrayList)            : void
+  + loadResultsFromFile / saveResultsToFile: void
+}`
+    },
+    op: {
+      badge: 'Shared Outcome DTO',
+      title: 'OperationResult',
+      desc: 'Encapsulates whether input validation succeeded, the exact specification message string, and the newly created StudentResult reference.',
+      code: `class OperationResult {
+  - final boolean success;
+  - final String message;
+  - final StudentResult studentResult;
+
+  + isSuccess()        : boolean
+  + getMessage()       : String
+  + getStudentResult() : StudentResult
+}`
+    },
+    gui: {
+      badge: 'Java Swing Desktop UI',
+      title: 'ExamResultGUI extends JFrame',
+      desc: 'Interactive desktop window calling the exact same core DSA methods, with JTable row highlighting, disabled built-in table sort, Clear All button, and output log.',
+      code: `class ExamResultGUI extends JFrame {
+  - ArrayList<StudentResult> resultsList;
+  - JTable resultsTable; // autoRowSorter = false
+
+  - onAddResult()        -> addResultFromInputs()
+  - onSearchById()       -> searchById() [Linear]
+  - onSortByPercentage() -> sortByPercentage() [Bubble]
+  - onClearAllRecords()  -> clearAllResults()
+}`
+    }
+  };
+
+  function showClassDetail(key) {
+    const info = classInfo[key];
+    document.getElementById('umlBadge').textContent = info.badge;
+    document.getElementById('umlTitle').textContent = info.title;
+    document.getElementById('umlDesc').textContent = info.desc;
+    document.getElementById('umlCode').textContent = info.code;
+  }
+
+  // ==================== SLIDE 6: LIVE ADD RESULT SIMULATOR ====================
+  let simIdCounter = 102;
+
+  function fillPreset(name, m1, m2, m3) {
+    document.getElementById('simName').value = name;
+    document.getElementById('simM1').value = m1;
+    document.getElementById('simM2').value = m2;
+    document.getElementById('simM3').value = m3;
+    runAddSim();
+  }
+
+  function resetSimCounter() {
+    simIdCounter = 101;
+    document.getElementById('simNextIdBadge').textContent = 'Next ID: ER101';
+    document.getElementById('simOutput').textContent = 'ID counter reset to ER101. Ready for fresh student entry.';
+  }
+
+  function runAddSim() {
+    const rawName = document.getElementById('simName').value.replace(/[,|]/g, ' ').replace(/\s+/g, ' ').trim();
+    const m1 = parseInt(document.getElementById('simM1').value, 10);
+    const m2 = parseInt(document.getElementById('simM2').value, 10);
+    const m3 = parseInt(document.getElementById('simM3').value, 10);
+    const resEl = document.getElementById('simRes');
+
+    if (!rawName) {
+      document.getElementById('simOutput').textContent = 'Invalid name. Name cannot be empty.';
+      resEl.textContent = 'Error';
+      resEl.style.color = 'var(--fail)';
+      return;
+    }
+    if (isNaN(m1) || isNaN(m2) || isNaN(m3)) {
+      document.getElementById('simOutput').textContent = 'Invalid marks. Each mark must be an integer between 0 and 100.';
+      resEl.textContent = 'Invalid';
+      resEl.style.color = 'var(--fail)';
+      return;
+    }
+    if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
+      document.getElementById('simTotal').textContent = '—';
+      document.getElementById('simPct').textContent = '—';
+      resEl.textContent = 'Rejected';
+      resEl.style.color = 'var(--fail)';
+      document.getElementById('simOutput').textContent = 'Invalid marks. Each mark must be between 0 and 100.';
+      return;
+    }
+
+    const id = 'ER' + simIdCounter++;
+    const total = m1 + m2 + m3;
+    const pct = (total * 100.0) / 300.0;
+    const result = pct >= 40.0 ? 'Pass' : 'Fail';
+
+    document.getElementById('simTotal').textContent = total + '/300';
+    document.getElementById('simPct').textContent = pct.toFixed(2) + '%';
+    resEl.textContent = result;
+    resEl.style.color = result === 'Pass' ? 'var(--pass)' : 'var(--fail)';
+    document.getElementById('simNextIdBadge').textContent = 'Next ID: ER' + simIdCounter;
+    document.getElementById('simOutput').textContent =
+      `Result added. ID: ${id} | ${rawName} | Total: ${total}/300 | Percentage: ${pct.toFixed(2)} | Result: ${result}`;
+  }
+
+  // ==================== SLIDE 7: LIVE LINEAR SEARCH VISUALIZER ====================
+  const searchSample = [
+    { id: 'ER101', name: 'Kiran Patel', total: 240, pct: 80.00, res: 'Pass' },
+    { id: 'ER102', name: 'Mitali Roy',  total: 103, pct: 34.33, res: 'Fail' },
+    { id: 'ER103', name: 'Lalit Soni',  total: 120, pct: 40.00, res: 'Pass' },
+    { id: 'ER104', name: 'Aarav Verma', total: 275, pct: 91.67, res: 'Pass' },
+    { id: 'ER105', name: 'Neha Sharma', total: 186, pct: 62.00, res: 'Pass' }
+  ];
+  let searchTimer = null;
+
+  function renderSearchSlots(activeIdx = -1, matchedIdx = -1) {
+    const container = document.getElementById('searchArrayContainer');
+    container.innerHTML = '';
+    searchSample.forEach((item, idx) => {
+      let cls = 'array-slot';
+      if (idx === matchedIdx) cls += ' matched';
+      else if (idx === activeIdx) cls += ' scanning';
+      else if (activeIdx > idx || (matchedIdx === -2)) cls += ' checked';
+
+      const slot = document.createElement('div');
+      slot.className = cls;
+      slot.innerHTML = `
+        <div style="font-size:11px; color:var(--text-muted); font-family:monospace;">index [${idx}]</div>
+        <div style="font-size:17px; font-weight:800; margin:4px 0; color:var(--accent);">${item.id}</div>
+        <div style="font-size:13px; font-weight:600;">${item.name}</div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">${item.pct.toFixed(2)}% · <span class="badge ${item.res === 'Pass' ? 'badge-pass' : 'badge-fail'}">${item.res}</span></div>
+      `;
+      container.appendChild(slot);
+    });
+  }
+
+  function quickSearch(val) {
+    document.getElementById('searchInput').value = val;
+    animateLinearSearch();
+  }
+
+  function animateLinearSearch() {
+    if (searchTimer) clearInterval(searchTimer);
+    const query = document.getElementById('searchInput').value.trim();
+    const badge = document.getElementById('searchStepBadge');
+    const log = document.getElementById('searchLogBox');
+    if (!query) return;
+
+    let i = 0;
+    renderSearchSlots(0, -1);
+    badge.textContent = `Scanning index i = 0 ...`;
+    log.textContent = `Checking list.get(0).getId() ["${searchSample[0].id}"] equalsIgnoreCase("${query}") ...`;
+
+    searchTimer = setInterval(() => {
+      const item = searchSample[i];
+      if (item.id.toLowerCase() === query.toLowerCase()) {
+        clearInterval(searchTimer);
+        renderSearchSlots(-1, i);
+        badge.textContent = `Match Found at index [${i}] (${i + 1} comparison${i === 0 ? '' : 's'})`;
+        log.textContent = `Found: ${item.id} | ${item.name} | Total: ${item.total}/300 | Percentage: ${item.pct.toFixed(2)} | Result: ${item.res}`;
+        return;
+      }
+      i++;
+      if (i >= searchSample.length) {
+        clearInterval(searchTimer);
+        renderSearchSlots(-1, -2);
+        badge.textContent = `Scanned all ${searchSample.length} elements · Not Found`;
+        log.textContent = `Result not found for ID: ${query}`;
+      } else {
+        renderSearchSlots(i, -1);
+        badge.textContent = `Scanning index i = ${i} ...`;
+        log.textContent = `Checking list.get(${i}).getId() ["${searchSample[i].id}"] equalsIgnoreCase("${query}") ...`;
+      }
+    }, 550);
+  }
+
+  // ==================== SLIDE 8: LIVE BUBBLE SORT VISUALIZER ====================
+  const initialSortData = [
+    { id: 'ER102', name: 'Mitali Roy',  pct: 34.33, res: 'Fail' },
+    { id: 'ER101', name: 'Kiran Patel', pct: 80.00, res: 'Pass' },
+    { id: 'ER103', name: 'Lalit Soni',  pct: 40.00, res: 'Pass' },
+    { id: 'ER104', name: 'Aarav Verma', pct: 91.67, res: 'Pass' },
+    { id: 'ER105', name: 'Neha Sharma', pct: 62.00, res: 'Pass' }
+  ];
+
+  let sortList = [];
+  let sortSteps = [];
+  let sortStepIdx = 0;
+  let sortInterval = null;
+
+  function buildBubbleSortSteps(arr) {
+    const a = arr.map(x => ({ ...x }));
+    const steps = [];
+    const n = a.length;
+    for (let i = 0; i < n - 1; i++) {
+      let swapped = false;
+      for (let j = 0; j < n - i - 1; j++) {
+        steps.push({
+          snapshot: a.map(x => ({ ...x })),
+          i, j, type: 'compare',
+          sortedFrom: n - i,
+          msg: `Pass ${i + 1}, j=${j}: Compare ${a[j].pct.toFixed(2)}% < ${a[j + 1].pct.toFixed(2)}% ? ${a[j].pct < a[j + 1].pct ? 'YES -> Swap!' : 'NO -> Keep order'}`
+        });
+        if (a[j].pct < a[j + 1].pct) {
+          const tmp = a[j]; a[j] = a[j + 1]; a[j + 1] = tmp;
+          swapped = true;
+          steps.push({
+            snapshot: a.map(x => ({ ...x })),
+            i, j, type: 'swap',
+            sortedFrom: n - i,
+            msg: `Swapped ${a[j].id} (${a[j].pct.toFixed(2)}%) ahead of ${a[j + 1].id} (${a[j + 1].pct.toFixed(2)}%)`
+          });
+        }
+      }
+      if (!swapped) {
+        steps.push({
+          snapshot: a.map(x => ({ ...x })),
+          i, j: -1, type: 'done',
+          sortedFrom: 0,
+          msg: `Early Exit! swapped == false on Pass ${i + 1}. Final High-to-Low: ` +
+               a.map((r, idx) => `${idx + 1}. ${r.id} (${r.pct.toFixed(2)}%)`).join(' | ')
+        });
+        return steps;
+      }
+    }
+    steps.push({
+      snapshot: a.map(x => ({ ...x })),
+      i: n - 1, j: -1, type: 'done',
+      sortedFrom: 0,
+      msg: `Sorted High-to-Low! ` + a.map((r, idx) => `${idx + 1}. ${r.id} | ${r.name} | ${r.pct.toFixed(2)} | ${r.res}`).join('  ||  ')
+    });
+    return steps;
+  }
+
+  function renderSortArena(data, stepObj = null) {
+    const arena = document.getElementById('sortArena');
+    arena.innerHTML = '';
+    data.forEach((item, idx) => {
+      let cls = 'sort-col';
+      if (stepObj) {
+        if (stepObj.type === 'done' || idx >= stepObj.sortedFrom) cls += ' sorted';
+        if (idx === stepObj.j || idx === stepObj.j + 1) {
+          cls += stepObj.type === 'swap' ? ' swapping' : ' comparing';
+        }
+      }
+      const heightPx = Math.max(42, Math.round(item.pct * 1.45));
+      const col = document.createElement('div');
+      col.className = cls;
+      col.innerHTML = `
+        <div class="sort-bar" style="height:${heightPx}px;">${item.pct.toFixed(2)}%</div>
+        <div class="sort-meta">
+          <div style="font-weight:800; color:var(--text-main);">${item.id}</div>
+          <div style="color:var(--text-muted); font-size:11.5px;">${item.name}</div>
+        </div>
+      `;
+      arena.appendChild(col);
+    });
+  }
+
+  function resetBubbleSort() {
+    if (sortInterval) { clearInterval(sortInterval); sortInterval = null; }
+    document.getElementById('sortPlayBtn').textContent = '▶ Auto-Play Bubble Sort';
+    sortList = initialSortData.map(x => ({ ...x }));
+    sortSteps = buildBubbleSortSteps(sortList);
+    sortStepIdx = 0;
+    renderSortArena(sortList, null);
+    document.getElementById('sortStatusBadge').textContent = 'Unsorted · Ready';
+    document.getElementById('sortLogBox').textContent = 'Press "Auto-Play Bubble Sort" or "Step Once" to animate adjacent comparisons and swaps.';
+  }
+
+  function stepBubbleSort() {
+    if (sortStepIdx >= sortSteps.length) return false;
+    const st = sortSteps[sortStepIdx++];
+    renderSortArena(st.snapshot, st);
+    document.getElementById('sortStatusBadge').textContent =
+      st.type === 'done' ? 'Completed · Sorted High to Low' : `Pass ${st.i + 1} · Step ${sortStepIdx}/${sortSteps.length}`;
+    document.getElementById('sortLogBox').textContent = st.msg;
+    return st.type !== 'done';
+  }
+
+  function autoPlayBubbleSort() {
+    if (sortInterval) {
+      clearInterval(sortInterval);
+      sortInterval = null;
+      document.getElementById('sortPlayBtn').textContent = '▶ Resume Bubble Sort';
+      return;
+    }
+    if (sortStepIdx >= sortSteps.length) {
+      resetBubbleSort();
+    }
+    document.getElementById('sortPlayBtn').textContent = '⏸ Pause';
+    sortInterval = setInterval(() => {
+      const keepGoing = stepBubbleSort();
+      if (!keepGoing || sortStepIdx >= sortSteps.length) {
+        clearInterval(sortInterval);
+        sortInterval = null;
+        document.getElementById('sortPlayBtn').textContent = '▶ Replay Bubble Sort';
+      }
+    }, 620);
+  }
+
+  // Initialize everything on load
+  initNav();
+  renderSearchSlots(-1, -1);
+  resetBubbleSort();
+</script>
+</body>
+</html>
