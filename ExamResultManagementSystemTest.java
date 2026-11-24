@@ -30,6 +30,7 @@ public class ExamResultManagementSystemTest {
         testNameSanitizationAndExtraMarks();
         testGuiControllerOperationsAndFormats();
         testMultipleRecordsScale();
+        testClearAllRecordsAndResetId();
         testSwingGuiInstantiation();
 
         System.out.println("\n==================================================");
@@ -351,6 +352,30 @@ public class ExamResultManagementSystemTest {
                 list.size() == 50 && monotonicDescending && foundLastAdded != null
                         && foundLastAdded.getName().equals("Student 50"),
                 "Multi-record verification failed");
+    }
+
+    /**
+     * Verifies clearing all saved records wipes results.txt, empties ArrayList, and resets ID to ER101.
+     */
+    private static void testClearAllRecordsAndResetId() {
+        String tempFile = "test_clear_records.txt";
+        ExamResultManagementSystem.setNextIdNumber(101);
+        ArrayList<StudentResult> list = new ArrayList<>();
+        ExamResultManagementSystem.createAndAddResult(list, "Kiran Patel", 80, 70, 90);
+        ExamResultManagementSystem.createAndAddResult(list, "Mitali Roy", 35, 30, 38);
+        ExamResultManagementSystem.saveResultsToFile(list, tempFile);
+
+        ExamResultManagementSystem.clearAllResults(list, tempFile);
+
+        ArrayList<StudentResult> reloaded = new ArrayList<>();
+        ExamResultManagementSystem.loadResultsFromFile(reloaded, tempFile);
+
+        OperationResult fresh = ExamResultManagementSystem.createAndAddResult(list, "Lalit Soni", 40, 40, 40);
+        new File(tempFile).delete();
+
+        assertTrue("Clear All Records - Empties File & Resets ID to ER101",
+                reloaded.isEmpty() && fresh.isSuccess() && fresh.getStudentResult().getId().equals("ER101"),
+                "Failed to clear saved records and reset ID to ER101");
     }
 
     /**

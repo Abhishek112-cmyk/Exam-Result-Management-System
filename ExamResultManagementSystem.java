@@ -735,14 +735,40 @@ public class ExamResultManagementSystem {
      * Feature 5: File Handling - Save data to file on exit.
      */
     public static void saveResultsToFile(ArrayList<StudentResult> list, String fileName) {
-        if (list == null) return;
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+        if (list == null || fileName == null) return;
+        File file = new File(fileName);
+        if (list.isEmpty()) {
+            if (file.exists()) {
+                file.delete();
+            }
+            return;
+        }
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
             for (int i = 0; i < list.size(); i++) {
                 writer.write(list.get(i).toFileString());
                 writer.newLine();
             }
         } catch (IOException e) {
             System.err.println("Error saving to " + fileName + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Clears all records in memory, deletes/clears the saved file, and resets nextIdNumber back to 101 (ER101).
+     */
+    public static void clearAllResults(ArrayList<StudentResult> list, String fileName) {
+        if (list != null) {
+            list.clear();
+        }
+        updateNextIdNumber(list);
+        if (fileName != null) {
+            File file = new File(fileName);
+            if (file.exists() && !file.delete()) {
+                try (FileWriter fw = new FileWriter(file, false)) {
+                    fw.write("");
+                } catch (IOException ignored) {
+                }
+            }
         }
     }
 
@@ -850,8 +876,8 @@ class ExamResultGUI extends JFrame {
         this.fileName = fileName;
 
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setMinimumSize(new Dimension(1040, 680));
-        setSize(1120, 740);
+        setMinimumSize(new Dimension(1040, 720));
+        setSize(1120, 770);
         setLocationRelativeTo(null);
 
         addWindowListener(new WindowAdapter() {
@@ -1134,7 +1160,7 @@ class ExamResultGUI extends JFrame {
 
     private JPanel buildMenuOperationsCard() {
         JPanel card = createCardPanel();
-        card.setLayout(new GridLayout(0, 1, 0, 8));
+        card.setLayout(new GridLayout(0, 1, 0, 7));
 
         JLabel title = new JLabel("Menu Operations & Persistence");
         title.setFont(new Font("SansSerif", Font.BOLD, 15));
@@ -1143,17 +1169,20 @@ class ExamResultGUI extends JFrame {
         JButton displayAllBtn = createStyledButton("2 - Display All Results", SLATE_BTN, Color.WHITE);
         JButton sortBtn = createStyledButton("4 - Sort by Percentage (High to Low)", INDIGO, Color.WHITE);
         JButton saveBtn = createStyledButton("Save Now to " + fileName, new Color(22, 163, 74), Color.WHITE);
+        JButton clearAllBtn = createStyledButton("Clear All Saved Records (Reset ER101)", new Color(217, 119, 6), Color.WHITE);
         JButton exitBtn = createStyledButton("5 - Save & Exit", DANGER_BTN, Color.WHITE);
 
         displayAllBtn.addActionListener(e -> onDisplayAll());
         sortBtn.addActionListener(e -> onSortByPercentage());
         saveBtn.addActionListener(e -> onSaveNow());
+        clearAllBtn.addActionListener(e -> onClearAllRecords());
         exitBtn.addActionListener(e -> saveAndExit());
 
         card.add(title);
         card.add(displayAllBtn);
         card.add(sortBtn);
         card.add(saveBtn);
+        card.add(clearAllBtn);
         card.add(exitBtn);
 
         return card;
@@ -1400,6 +1429,36 @@ class ExamResultGUI extends JFrame {
         String msg = "Saved " + resultsList.size() + " record(s) to " + fileName + ".";
         appendLog("> " + msg);
         setBanner(msg, true, false);
+    }
+
+    private void onClearAllRecords() {
+        if (resultsList.isEmpty() && !(new File(fileName).exists())
+                && ExamResultManagementSystem.getNextIdNumber() == 101) {
+            String msg = "No saved records to clear. Next Result ID is already ER101.";
+            appendLog("> " + msg);
+            setBanner(msg, false, true);
+            return;
+        }
+
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Delete all " + resultsList.size() + " saved record(s) from " + fileName
+                        + " and reset the next Result ID back to ER101?",
+                "Confirm Clear All Records",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+
+        if (choice == JOptionPane.YES_OPTION) {
+            ExamResultManagementSystem.clearAllResults(resultsList, fileName);
+            searchIdField.setText("");
+            refreshTable(false);
+            updateStats();
+            tableModeLabel.setText("Showing 0 record(s)");
+            String msg = "Cleared all saved records from " + fileName + ". Next Result ID reset to ER101.";
+            appendLog("> " + msg);
+            setBanner(msg, true, false);
+            nameField.requestFocusInWindow();
+        }
     }
 
     private void saveAndExit() {
