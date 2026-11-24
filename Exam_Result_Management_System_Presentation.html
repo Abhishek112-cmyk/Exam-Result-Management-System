@@ -1050,6 +1050,7 @@
     <span>Exam Result Management System · Higgsfield Cinema Deck</span>
   </div>
   <div class="topbar-actions">
+    <button class="icon-btn" onclick="cycle3DWorld()" id="worldBtn" title="Switch 3D Background World (B)">🌐 3D: Cyber Grid + Solids</button>
     <button class="icon-btn" onclick="cycleTransitionFx()" id="fxBtn" title="Switch Camera Rig Motion (X)">🎬 Rig: Crash Zoom</button>
     <button class="icon-btn active-toggle" onclick="toggleHud()" id="hudBtn" title="Toggle Cinema Viewfinder HUD (H)">🎥 HUD (H)</button>
     <button class="icon-btn" onclick="toggleLaser()" id="laserBtn" title="Presenter Laser Pointer (L)">🔴 Laser (L)</button>
@@ -1740,12 +1741,49 @@ ER103,Lalit Soni,40,40,40,120,40.00,Pass</div>
   }
   initKineticTitles();
 
-  // ==================== 2. HIGGSFIELD 3D WARP-SPEED STARFIELD & NODE CANVAS ====================
+  // ==================== 2. FULL 3D PERSPECTIVE BACKGROUND ENGINE ====================
   const canvas = document.getElementById('warpCanvas');
   const ctx = canvas.getContext('2d');
-  let stars = [];
-  let warpBoost = 0; // spikes on slide transition for Higgsfield camera rush!
+  let warpBoost = 0;
   let mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+
+  // 3D Worlds: 0 = Cyber Terrain Grid + 3D Wireframe Polyhedra, 1 = 3D Volumetric Data Lattice, 2 = 3D Quantum Vortex Tunnel
+  const worldModes = [
+    { id: 0, label: '🌐 3D: Cyber Grid + Solids' },
+    { id: 1, label: '🧬 3D: Neural Data Lattice' },
+    { id: 2, label: '🌀 3D: Vortex Portal Tunnel' }
+  ];
+  let currentWorld = 0;
+
+  function cycle3DWorld() {
+    currentWorld = (currentWorld + 1) % worldModes.length;
+    document.getElementById('worldBtn').textContent = worldModes[currentWorld].label;
+    warpBoost = 0.85;
+  }
+
+  // Per-slide 3D camera waypoints so the 3D background camera flies through space on every slide cut!
+  const slideCameraPoses = [
+    { x:   0, y:  -20, z:   0, yaw:  0.00, pitch:  0.08, roll:  0.00 },
+    { x: -90, y:  -35, z: 120, yaw:  0.22, pitch:  0.12, roll: -0.05 },
+    { x:  95, y:   15, z: 240, yaw: -0.24, pitch:  0.05, roll:  0.06 },
+    { x: -60, y:  -50, z: 360, yaw:  0.15, pitch:  0.16, roll: -0.04 },
+    { x:  80, y:  -25, z: 480, yaw: -0.18, pitch:  0.10, roll:  0.05 },
+    { x:   0, y:  -40, z: 600, yaw:  0.04, pitch:  0.14, roll:  0.00 },
+    { x: -110,y:  -10, z: 720, yaw:  0.28, pitch:  0.07, roll: -0.07 },
+    { x: 110, y:  -30, z: 840, yaw: -0.26, pitch:  0.13, roll:  0.06 },
+    { x: -55, y:   20, z: 960, yaw:  0.14, pitch:  0.04, roll: -0.03 },
+    { x:  65, y:  -45, z:1080, yaw: -0.16, pitch:  0.15, roll:  0.04 },
+    { x: -40, y:  -25, z:1200, yaw:  0.10, pitch:  0.09, roll: -0.02 },
+    { x:   0, y:  -15, z:1320, yaw:  0.00, pitch:  0.06, roll:  0.00 }
+  ];
+
+  let cam = { x: 0, y: -20, z: 0, yaw: 0, pitch: 0.08, roll: 0 };
+  let targetCam = { ...slideCameraPoses[0] };
+
+  function set3DCameraForSlide(slideIdx) {
+    const pose = slideCameraPoses[slideIdx % slideCameraPoses.length];
+    targetCam = { ...pose };
+  }
 
   function resizeCanvas() {
     canvas.width = window.innerWidth;
@@ -1754,65 +1792,383 @@ ER103,Lalit Soni,40,40,40,120,40.00,Pass</div>
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  function initStars() {
-    stars = [];
-    for (let i = 0; i < 115; i++) {
-      stars.push({
-        x: (Math.random() - 0.5) * canvas.width * 2,
-        y: (Math.random() - 0.5) * canvas.height * 2,
-        z: Math.random() * 1000 + 50,
-        pz: 0,
-        hue: i % 3 === 0 ? '#d4ff00' : (i % 2 === 0 ? '#00f0ff' : '#a855f7')
-      });
-    }
+  // ---- 3D Math Helpers ----
+  function rotX(p, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c };
   }
-  initStars();
+  function rotY(p, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
+  }
+  function rotZ(p, a) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z };
+  }
 
-  function renderWarpCanvas() {
+  function projectPoint(worldPt, fov) {
+    // Translate relative to camera
+    let p = {
+      x: worldPt.x - cam.x,
+      y: worldPt.y - cam.y,
+      z: worldPt.z
+    };
+    // Apply camera orientation
+    p = rotY(p, -cam.yaw);
+    p = rotX(p, -cam.pitch);
+    p = rotZ(p, -cam.roll);
+
+    if (p.z <= 15) return null; // Behind near clipping plane
+    const scale = fov / p.z;
+    return {
+      x: canvas.width / 2 + p.x * scale,
+      y: canvas.height / 2 + p.y * scale,
+      z: p.z,
+      scale: scale
+    };
+  }
+
+  // ---- 3D Wireframe Polyhedra Builders ----
+  function makeCube(radius) {
+    const r = radius;
+    const verts = [
+      {x:-r,y:-r,z:-r}, {x:r,y:-r,z:-r}, {x:r,y:r,z:-r}, {x:-r,y:r,z:-r},
+      {x:-r,y:-r,z: r}, {x:r,y:-r,z: r}, {x:r,y:r,z: r}, {x:-r,y:r,z: r}
+    ];
+    const edges = [
+      [0,1],[1,2],[2,3],[3,0],
+      [4,5],[5,6],[6,7],[7,4],
+      [0,4],[1,5],[2,6],[3,7]
+    ];
+    return { verts, edges };
+  }
+
+  function makeOctahedron(radius) {
+    const r = radius;
+    const verts = [
+      {x:0,y:-r,z:0}, {x:0,y:r,z:0},
+      {x:-r,y:0,z:0}, {x:r,y:0,z:0},
+      {x:0,y:0,z:-r}, {x:0,y:0,z:r}
+    ];
+    const edges = [
+      [0,2],[0,3],[0,4],[0,5],
+      [1,2],[1,3],[1,4],[1,5],
+      [2,4],[4,3],[3,5],[5,2]
+    ];
+    return { verts, edges };
+  }
+
+  function makeIcosahedron(radius) {
+    const t = (1 + Math.sqrt(5)) / 2;
+    const raw = [
+      [-1, t, 0], [1, t, 0], [-1,-t, 0], [1,-t, 0],
+      [0,-1, t], [0, 1, t], [0,-1,-t], [0, 1,-t],
+      [ t, 0,-1], [ t, 0, 1], [-t, 0,-1], [-t, 0, 1]
+    ];
+    const verts = raw.map(([x,y,z]) => {
+      const len = Math.hypot(x,y,z);
+      return { x: (x/len)*radius, y: (y/len)*radius, z: (z/len)*radius };
+    });
+    const edges = [];
+    for (let i = 0; i < verts.length; i++) {
+      for (let j = i + 1; j < verts.length; j++) {
+        const d = Math.hypot(verts[i].x - verts[j].x, verts[i].y - verts[j].y, verts[i].z - verts[j].z);
+        if (d < radius * 1.15) edges.push([i, j]);
+      }
+    }
+    return { verts, edges };
+  }
+
+  // Scene objects for World 0 (Cyber Grid + Floating 3D Solids)
+  const solids3D = [
+    { mesh: makeIcosahedron(115), pos: {x: -440, y: -110, z: 540}, rot: {x:0.2, y:0.4, z:0}, speed: {x:0.007, y:0.011, z:0.004}, color: '#d4ff00', label: 'ArrayList<StudentResult>' },
+    { mesh: makeCube(85),         pos: {x:  460, y: -130, z: 500}, rot: {x:0.5, y:0.1, z:0.3}, speed: {x:-0.009, y:0.008, z:0.006}, color: '#00f0ff', label: 'BubbleSort O(N²)' },
+    { mesh: makeOctahedron(95),   pos: {x: -390, y:  145, z: 680}, rot: {x:0.1, y:0.6, z:0.2}, speed: {x:0.008, y:-0.010, z:0.005}, color: '#a855f7', label: 'LinearSearch O(N)' },
+    { mesh: makeCube(70),         pos: {x:  420, y:  155, z: 650}, rot: {x:0.3, y:0.2, z:0.4}, speed: {x:0.010, y:0.007, z:-0.008}, color: '#ff2a85', label: 'results.txt I/O' },
+    { mesh: makeOctahedron(130),  pos: {x:    0, y: -220, z: 920}, rot: {x:0.4, y:0.3, z:0.1}, speed: {x:0.005, y:0.009, z:0.003}, color: '#00f0ff', label: 'ER101 .. ER150' }
+  ];
+
+  // 3D Particles / Nodes for volumetric depth
+  const depthNodes = [];
+  for (let i = 0; i < 95; i++) {
+    depthNodes.push({
+      x: (Math.random() - 0.5) * 1800,
+      y: (Math.random() - 0.5) * 1100,
+      z: Math.random() * 1100 + 80,
+      vx: (Math.random() - 0.5) * 0.7,
+      vy: (Math.random() - 0.5) * 0.7,
+      color: i % 3 === 0 ? '#d4ff00' : (i % 2 === 0 ? '#00f0ff' : '#a855f7'),
+      tag: i % 14 === 0 ? ['ER101','80.00%','Pass','O(1)','O(N)','ER102','40.00%'][i % 7] : null
+    });
+  }
+
+  let time3D = 0;
+
+  function render3DBackground() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const cx = canvas.width / 2 + (mouse.x - canvas.width / 2) * 0.08;
-    const cy = canvas.height / 2 + (mouse.y - canvas.height / 2) * 0.08;
+    const fov = 560;
 
-    warpBoost *= 0.90;
-    const speed = 2.2 + warpBoost * 42;
+    time3D += 0.018 + warpBoost * 0.09;
+    warpBoost *= 0.91;
 
-    for (let i = 0; i < stars.length; i++) {
-      const s = stars[i];
-      s.pz = s.z;
-      s.z -= speed;
-      if (s.z <= 10) {
-        s.x = (Math.random() - 0.5) * canvas.width * 2;
-        s.y = (Math.random() - 0.5) * canvas.height * 2;
-        s.z = 1000;
-        s.pz = 1000;
+    // Mouse parallax offset on 3D camera
+    const mxNorm = (mouse.x / Math.max(1, window.innerWidth)) - 0.5;
+    const myNorm = (mouse.y / Math.max(1, window.innerHeight)) - 0.5;
+
+    // Smooth camera spring interpolation
+    cam.x += (targetCam.x + mxNorm * 130 - cam.x) * 0.065;
+    cam.y += (targetCam.y + myNorm * 85  - cam.y) * 0.065;
+    cam.z += (targetCam.z - cam.z) * 0.065;
+    cam.yaw   += (targetCam.yaw   + mxNorm * 0.22 - cam.yaw) * 0.065;
+    cam.pitch += (targetCam.pitch - myNorm * 0.16 - cam.pitch) * 0.065;
+    cam.roll  += (targetCam.roll  - mxNorm * 0.06 - cam.roll) * 0.065;
+
+    if (currentWorld === 0) {
+      drawCyberTerrainAndSolids(fov, isLight);
+    } else if (currentWorld === 1) {
+      drawVolumetricDataLattice(fov, isLight);
+    } else {
+      drawQuantumVortexTunnel(fov, isLight);
+    }
+
+    requestAnimationFrame(render3DBackground);
+  }
+
+  // ---- WORLD 0: 3D Cyber Wave Floor/Ceiling Grid + Wireframe Polyhedra ----
+  function drawCyberTerrainAndSolids(fov, isLight) {
+    const cols = 18;
+    const rows = 16;
+    const spacingX = 135;
+    const spacingZ = 85;
+    const zFlow = (time3D * 95) % spacingZ;
+
+    // Draw 3D undulating floor & ceiling wireframe grids
+    [-1, 1].forEach((dir) => {
+      const baseY = dir === 1 ? 285 : -310;
+      const gridPts = [];
+
+      for (let r = 0; r < rows; r++) {
+        const rowArr = [];
+        const wz = 110 + r * spacingZ - zFlow;
+        for (let c = 0; c < cols; c++) {
+          const wx = (c - (cols - 1) / 2) * spacingX + cam.x * 0.45;
+          const wave = Math.sin(c * 0.45 + time3D * 1.4) * Math.cos(r * 0.38 - time3D) * 26;
+          const wy = baseY + wave;
+          rowArr.push(projectPoint({ x: wx, y: wy, z: wz }, fov));
+        }
+        gridPts.push(rowArr);
       }
 
-      const sx = cx + (s.x / s.z) * 520;
-      const sy = cy + (s.y / s.z) * 520;
-      const px = cx + (s.x / s.pz) * 520;
-      const py = cy + (s.y / s.pz) * 520;
+      for (let r = 0; r < rows; r++) {
+        const depthAlpha = Math.max(0.03, (1 - r / rows) * (isLight ? 0.22 : 0.34));
+        ctx.strokeStyle = dir === 1
+          ? (isLight ? `rgba(37, 99, 235, ${depthAlpha})` : `rgba(0, 240, 255, ${depthAlpha})`)
+          : (isLight ? `rgba(124, 58, 237, ${depthAlpha * 0.7})` : `rgba(168, 85, 247, ${depthAlpha * 0.75})`);
+        ctx.lineWidth = 1;
 
-      const alpha = Math.min(1, (1 - s.z / 1000) * (isLight ? 0.45 : 0.78));
-      const radius = Math.max(0.7, (1 - s.z / 1000) * 2.8);
+        for (let c = 0; c < cols; c++) {
+          const p = gridPts[r][c];
+          if (!p) continue;
+          if (c + 1 < cols && gridPts[r][c + 1]) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(gridPts[r][c + 1].x, gridPts[r][c + 1].y);
+            ctx.stroke();
+          }
+          if (r + 1 < rows && gridPts[r + 1][c]) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(gridPts[r + 1][c].x, gridPts[r + 1][c].y);
+            ctx.stroke();
+          }
+        }
+      }
+    });
 
+    // Draw Rotating 3D Wireframe Polyhedra (Icosahedron, Cubes, Octahedra)
+    solids3D.forEach((solid, sIdx) => {
+      const boostMult = 1 + warpBoost * 4.5;
+      solid.rot.x += solid.speed.x * boostMult;
+      solid.rot.y += solid.speed.y * boostMult;
+      solid.rot.z += solid.speed.z * boostMult;
+
+      const bobY = Math.sin(time3D * 1.3 + sIdx * 1.7) * 18;
+      const worldCenter = {
+        x: solid.pos.x + cam.x * 0.65,
+        y: solid.pos.y + bobY + cam.y * 0.5,
+        z: solid.pos.z
+      };
+
+      const projectedVerts = solid.mesh.verts.map((v) => {
+        let rv = rotX(v, solid.rot.x);
+        rv = rotY(rv, solid.rot.y);
+        rv = rotZ(rv, solid.rot.z);
+        return projectPoint({
+          x: worldCenter.x + rv.x,
+          y: worldCenter.y + rv.y,
+          z: worldCenter.z + rv.z
+        }, fov);
+      });
+
+      ctx.strokeStyle = isLight ? '#2563eb' : solid.color;
+      ctx.globalAlpha = isLight ? 0.26 : 0.46;
+      ctx.lineWidth = 1.35;
+
+      solid.mesh.edges.forEach(([i, j]) => {
+        const a = projectedVerts[i];
+        const b = projectedVerts[j];
+        if (!a || !b) return;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      });
+
+      // Glowing vertices
+      ctx.fillStyle = isLight ? '#1d4ed8' : '#ffffff';
+      projectedVerts.forEach((pv) => {
+        if (!pv) return;
+        ctx.beginPath();
+        ctx.arc(pv.x, pv.y, Math.max(1.4, pv.scale * 2.2), 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Floating 3D HUD Telemetry Label under solid
+      const centerProj = projectPoint(worldCenter, fov);
+      if (centerProj) {
+        ctx.font = '700 10px "SFMono-Regular", Menlo, monospace';
+        ctx.fillStyle = isLight ? 'rgba(37, 99, 235, 0.55)' : solid.color;
+        ctx.globalAlpha = isLight ? 0.55 : 0.65;
+        ctx.fillText(`[${solid.label}]`, centerProj.x - 42, centerProj.y + 72 * centerProj.scale);
+      }
+    });
+
+    // Also render 3D depth particles streaming through space
+    drawStreaming3DNodes(fov, isLight, false);
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- WORLD 1: 3D Volumetric Neural Data Lattice ----
+  function drawVolumetricDataLattice(fov, isLight) {
+    drawStreaming3DNodes(fov, isLight, true);
+    ctx.globalAlpha = 1;
+  }
+
+  function drawStreaming3DNodes(fov, isLight, connectEdges) {
+    const zSpeed = 3.2 + warpBoost * 38;
+    const projectedList = [];
+
+    for (let i = 0; i < depthNodes.length; i++) {
+      const n = depthNodes[i];
+      n.z -= zSpeed;
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.z <= 25) {
+        n.z = 1150;
+        n.x = (Math.random() - 0.5) * 1800 + cam.x;
+        n.y = (Math.random() - 0.5) * 1100 + cam.y;
+      }
+
+      const pr = projectPoint({ x: n.x + cam.x * 0.4, y: n.y + cam.y * 0.4, z: n.z }, fov);
+      if (pr) {
+        projectedList.push({ pr, node: n });
+      }
+    }
+
+    if (connectEdges) {
+      for (let i = 0; i < projectedList.length; i++) {
+        for (let j = i + 1; j < projectedList.length; j++) {
+          const a = projectedList[i];
+          const b = projectedList[j];
+          const dist3D = Math.hypot(a.node.x - b.node.x, a.node.y - b.node.y, a.node.z - b.node.z);
+          if (dist3D < 260) {
+            const alpha = (1 - dist3D / 260) * (isLight ? 0.25 : 0.42);
+            ctx.strokeStyle = isLight ? `rgba(37, 99, 235, ${alpha})` : a.node.color;
+            ctx.globalAlpha = alpha;
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.moveTo(a.pr.x, a.pr.y);
+            ctx.lineTo(b.pr.x, b.pr.y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < projectedList.length; i++) {
+      const { pr, node } = projectedList[i];
+      const depthAlpha = Math.min(1, (1 - pr.z / 1200) * (isLight ? 0.5 : 0.85));
+      const r = Math.max(1.1, pr.scale * 3.8);
+
+      ctx.globalAlpha = depthAlpha;
+      ctx.fillStyle = isLight ? '#2563eb' : node.color;
       ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(sx, sy);
-      ctx.strokeStyle = isLight ? `rgba(37, 99, 235, ${alpha})` : s.hue;
-      ctx.globalAlpha = alpha;
-      ctx.lineWidth = warpBoost > 0.08 ? radius * 1.4 : radius * 0.8;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-      ctx.fillStyle = isLight ? '#2563eb' : s.hue;
+      ctx.arc(pr.x, pr.y, r, 0, Math.PI * 2);
       ctx.fill();
+
+      if (node.tag && pr.z < 780) {
+        ctx.font = '700 9.5px "SFMono-Regular", Menlo, monospace';
+        ctx.fillText(node.tag, pr.x + r + 4, pr.y + 3);
+      }
+    }
+  }
+
+  // ---- WORLD 2: 3D Quantum Vortex Portal Tunnel ----
+  function drawQuantumVortexTunnel(fov, isLight) {
+    const ringCount = 18;
+    const segs = 16;
+    const ringStepZ = 65;
+    const zOffset = (time3D * 140) % ringStepZ;
+    const rings = [];
+
+    for (let r = 0; r < ringCount; r++) {
+      const wz = 70 + r * ringStepZ - zOffset;
+      const radius = 320 + Math.sin(r * 0.45 + time3D * 2) * 45;
+      const twist = r * 0.14 + time3D * 0.8;
+      const ringPts = [];
+
+      for (let s = 0; s < segs; s++) {
+        const ang = (s / segs) * Math.PI * 2 + twist;
+        const wx = Math.cos(ang) * radius + cam.x * 0.7;
+        const wy = Math.sin(ang) * radius + cam.y * 0.7;
+        ringPts.push(projectPoint({ x: wx, y: wy, z: wz }, fov));
+      }
+      rings.push({ ringPts, r });
+    }
+
+    for (let r = 0; r < rings.length; r++) {
+      const { ringPts } = rings[r];
+      const alpha = Math.max(0.05, (1 - r / ringCount) * (isLight ? 0.30 : 0.52));
+      ctx.strokeStyle = r % 2 === 0
+        ? (isLight ? `rgba(37, 99, 235, ${alpha})` : `rgba(212, 255, 0, ${alpha})`)
+        : (isLight ? `rgba(124, 58, 237, ${alpha})` : `rgba(0, 240, 255, ${alpha})`);
+      ctx.lineWidth = 1.3;
+
+      for (let s = 0; s < segs; s++) {
+        const p1 = ringPts[s];
+        const p2 = ringPts[(s + 1) % segs];
+        if (p1 && p2) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+        }
+        if (r + 1 < rings.length) {
+          const pNext = rings[r + 1].ringPts[s];
+          if (p1 && pNext) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(pNext.x, pNext.y);
+            ctx.stroke();
+          }
+        }
+      }
     }
     ctx.globalAlpha = 1;
-    requestAnimationFrame(renderWarpCanvas);
   }
-  renderWarpCanvas();
+
+  render3DBackground();
 
   // ==================== 3. LIVE 3D CAMERA RIG PARALLAX & TILT CARDS ====================
   const laserDot = document.getElementById('laserDot');
@@ -1947,6 +2303,7 @@ ER103,Lalit Soni,40,40,40,120,40.00,Pass</div>
   function goToSlide(index) {
     if (index < 0 || index >= totalSlides || index === currentSlide) return;
     triggerAnamorphicCut();
+    set3DCameraForSlide(index);
 
     slides.forEach((s, idx) => {
       s.classList.remove('active', 'prev');
@@ -1999,6 +2356,8 @@ ER103,Lalit Soni,40,40,40,120,40.00,Pass</div>
       toggleHud();
     } else if (e.key === 'x' || e.key === 'X') {
       cycleTransitionFx();
+    } else if (e.key === 'b' || e.key === 'B') {
+      cycle3DWorld();
     } else if (e.key === 'Escape') {
       document.getElementById('overviewModal').classList.remove('open');
       document.getElementById('notesDrawer').classList.remove('open');
