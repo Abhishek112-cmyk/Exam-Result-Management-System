@@ -107,15 +107,18 @@ public static void sortByPercentage(ArrayList<StudentResult> list) {
 ## 📂 Project Structure
 ```
 .
-├── ExamResultManagementSystem.java       # Single-file Java solution (Console + Swing Desktop GUI)
-├── ExamResultManagementSystemTest.java   # Automated unit and integration test suite (30 checks)
-├── app.sh                                # One-click compile & launch Desktop GUI App
-├── Launch_App.command                    # Double-clickable macOS Finder launcher for GUI App
-├── run.sh                                # One-click compile & run Console mode (or ./run.sh --gui)
-├── test.sh                               # One-click compile & run automated tests
-├── results.txt                           # Data file (auto-created on save/exit, not committed)
-├── .gitignore                            # Git ignore rules for build artifacts
-└── README.md                             # Complete project documentation
+├── ExamResultManagementSystem.java               # Single-file Java solution (Console + Swing Desktop GUI)
+├── ExamResultManagementSystemTest.java           # Automated unit and integration test suite (32 checks)
+├── Exam_Result_Management_System_Report.pdf      # 10-page University Project Interim Report (PDF)
+├── Exam_Result_Management_System_Presentation.html # 12-slide Interactive 3D HTML5 Presentation Deck
+├── app.sh                                        # One-click compile & launch Desktop GUI App
+├── Launch_App.command                            # Double-clickable macOS Finder launcher for GUI App
+├── Launch_Presentation.command                   # Double-clickable macOS Finder launcher for Presentation
+├── run.sh                                        # One-click compile & run Console mode (or ./run.sh --gui)
+├── test.sh                                       # One-click compile & run automated tests
+├── results.txt                                   # Data file (auto-created on save/exit, not committed)
+├── .gitignore                                    # Git ignore rules for build artifacts
+└── README.md                                     # Complete project documentation
 ```
 
 ---
