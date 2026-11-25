@@ -111,6 +111,7 @@ public static void sortByPercentage(ArrayList<StudentResult> list) {
 ├── ExamResultManagementSystemTest.java           # Automated unit and integration test suite (32 checks)
 ├── Exam_Result_Management_System_Report.pdf      # 10-page University Project Interim Report (PDF)
 ├── Exam_Result_Management_System_Presentation.html # 12-slide Interactive 3D HTML5 Presentation Deck
+├── Exam_Result_Management_System_Presentation.pdf  # 12-slide Widescreen PDF Copy of the Presentation Deck
 ├── app.sh                                        # One-click compile & launch Desktop GUI App
 ├── Launch_App.command                            # Double-clickable macOS Finder launcher for GUI App
 ├── Launch_Presentation.command                   # Double-clickable macOS Finder launcher for Presentation
