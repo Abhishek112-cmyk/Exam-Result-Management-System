@@ -66,6 +66,7 @@ import javax.swing.table.JTableHeader;
 class StudentResult {
     private String id;
     private String name;
+    private String[] subjectNames;
     private int[] marks;
     private int total;
     private int maxMarks;
@@ -73,9 +74,21 @@ class StudentResult {
     private String result;
 
     public StudentResult(String id, String name, int... marks) {
+        this(id, name, buildDefaultSubjectNames(marks == null ? 0 : marks.length), marks);
+    }
+
+    public StudentResult(String id, String name, String[] subjectNames, int[] marks) {
         this.id = id;
         this.name = name;
         this.marks = (marks == null) ? new int[0] : marks.clone();
+        this.subjectNames = new String[this.marks.length];
+        for (int i = 0; i < this.marks.length; i++) {
+            String sn = (subjectNames != null && i < subjectNames.length && subjectNames[i] != null
+                    && !subjectNames[i].trim().isEmpty())
+                    ? subjectNames[i].trim()
+                    : ("Subject " + (i + 1));
+            this.subjectNames[i] = sn;
+        }
         int sum = 0;
         for (int i = 0; i < this.marks.length; i++) {
             sum += this.marks[i];
@@ -86,14 +99,30 @@ class StudentResult {
         this.result = (this.percentage >= 40.0) ? "Pass" : "Fail";
     }
 
-    public StudentResult(String id, String name, int[] marks, int total, int maxMarks, double percentage, String result) {
+    public StudentResult(
+            String id, String name, String[] subjectNames, int[] marks, int total, int maxMarks, double percentage, String result) {
         this.id = id;
         this.name = name;
         this.marks = (marks == null) ? new int[0] : marks.clone();
+        this.subjectNames = new String[this.marks.length];
+        for (int i = 0; i < this.marks.length; i++) {
+            this.subjectNames[i] = (subjectNames != null && i < subjectNames.length && subjectNames[i] != null
+                    && !subjectNames[i].trim().isEmpty())
+                    ? subjectNames[i].trim()
+                    : ("Subject " + (i + 1));
+        }
         this.total = total;
         this.maxMarks = maxMarks;
         this.percentage = percentage;
         this.result = result;
+    }
+
+    private static String[] buildDefaultSubjectNames(int count) {
+        String[] names = new String[count];
+        for (int i = 0; i < count; i++) {
+            names[i] = "Subject " + (i + 1);
+        }
+        return names;
     }
 
     public String getId() {
@@ -110,6 +139,25 @@ class StudentResult {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String[] getSubjectNames() {
+        return subjectNames.clone();
+    }
+
+    public String getSubjectNameAt(int index) {
+        return (index >= 0 && index < subjectNames.length) ? subjectNames[index] : "";
+    }
+
+    public Integer findMarkForSubject(String targetSubject) {
+        if (targetSubject == null) return null;
+        String needle = targetSubject.trim();
+        for (int i = 0; i < subjectNames.length; i++) {
+            if (subjectNames[i].equalsIgnoreCase(needle)) {
+                return marks[i];
+            }
+        }
+        return null;
     }
 
     public int[] getMarks() {
@@ -159,13 +207,14 @@ class StudentResult {
     }
 
     /**
-     * File storage format (CSV) preserving variable-length raw marks and computed metrics.
+     * File storage format (CSV) preserving subject:mark pairs and computed metrics.
      */
     public String toFileString() {
         StringBuilder sb = new StringBuilder();
         sb.append(id).append(",").append(name);
         for (int i = 0; i < marks.length; i++) {
-            sb.append(",").append(marks[i]);
+            String safeSub = subjectNames[i].replace(",", " ").replace(":", " ").trim();
+            sb.append(",").append(safeSub).append(":").append(marks[i]);
         }
         sb.append(",").append(total)
           .append(",").append(String.format(Locale.US, "%.2f", percentage))
@@ -174,19 +223,29 @@ class StudentResult {
     }
 
     /**
-     * Serializes this record as a JSON object for the local HTTP server.
+     * Serializes this record as a JSON object for the local HTTP server and Firebase RTDB.
      */
     public String toJsonString() {
+        StringBuilder subsArr = new StringBuilder("[");
         StringBuilder marksArr = new StringBuilder("[");
         for (int i = 0; i < marks.length; i++) {
-            if (i > 0) marksArr.append(",");
+            if (i > 0) {
+                subsArr.append(",");
+                marksArr.append(",");
+            }
+            subsArr.append("{\"subject\":\"")
+                   .append(escapeJson(subjectNames[i]))
+                   .append("\",\"mark\":")
+                   .append(marks[i])
+                   .append("}");
             marksArr.append(marks[i]);
         }
+        subsArr.append("]");
         marksArr.append("]");
         return String.format(
                 Locale.US,
-                "{\"id\":\"%s\",\"name\":\"%s\",\"marks\":%s,\"total\":%d,\"maxMarks\":%d,\"percentage\":%.2f,\"result\":\"%s\"}",
-                escapeJson(id), escapeJson(name), marksArr.toString(), total, maxMarks, percentage, escapeJson(result));
+                "{\"id\":\"%s\",\"name\":\"%s\",\"subjects\":%s,\"marks\":%s,\"total\":%d,\"maxMarks\":%d,\"percentage\":%.2f,\"result\":\"%s\"}",
+                escapeJson(id), escapeJson(name), subsArr.toString(), marksArr.toString(), total, maxMarks, percentage, escapeJson(result));
     }
 
     private static String escapeJson(String s) {
@@ -453,15 +512,20 @@ public class ExamResultManagementSystem {
                 if ("add".equalsIgnoreCase(action)) {
                     String erpId = extractJsonString(body, "erpId");
                     String name = extractJsonString(body, "name");
-                    String[] marksArr = extractJsonStringArray(body, "marks");
+                    String[][] subjectPairs = extractJsonSubjectsArray(body);
                     OperationResult op;
-                    if (marksArr != null) {
-                        op = addResultFromInputs(list, erpId, name, marksArr);
+                    if (subjectPairs != null) {
+                        op = addResultWithNamedSubjects(list, erpId, name, subjectPairs[0], subjectPairs[1]);
                     } else {
-                        String m1 = extractJsonString(body, "m1");
-                        String m2 = extractJsonString(body, "m2");
-                        String m3 = extractJsonString(body, "m3");
-                        op = addResultFromInputs(list, erpId, name, m1, m2, m3);
+                        String[] marksArr = extractJsonStringArray(body, "marks");
+                        if (marksArr != null) {
+                            op = addResultFromInputs(list, erpId, name, marksArr);
+                        } else {
+                            String m1 = extractJsonString(body, "m1");
+                            String m2 = extractJsonString(body, "m2");
+                            String m3 = extractJsonString(body, "m3");
+                            op = addResultFromInputs(list, erpId, name, m1, m2, m3);
+                        }
                     }
                     if (op.isSuccess()) {
                         saveResultsToFile(list, FILE_NAME);
@@ -469,6 +533,15 @@ public class ExamResultManagementSystem {
                         status = 400;
                     }
                     responseJson = buildStateJson(list, op.isSuccess(), op.getMessage(), op.getStudentResult(), list.size() - 1);
+                } else if ("remove".equalsIgnoreCase(action)) {
+                    String targetId = extractJsonString(body, "id");
+                    OperationResult rem = removeResultById(list, targetId);
+                    if (rem.isSuccess()) {
+                        saveResultsToFile(list, FILE_NAME);
+                    } else {
+                        status = 404;
+                    }
+                    responseJson = buildStateJson(list, rem.isSuccess(), rem.getMessage(), null, -1);
                 } else if ("search".equalsIgnoreCase(action)) {
                     String query = extractJsonString(body, "id");
                     StudentResult found = searchById(list, query);
@@ -610,6 +683,34 @@ public class ExamResultManagementSystem {
         return items.toArray(new String[0]);
     }
 
+    private static String[][] extractJsonSubjectsArray(String json) {
+        if (json == null) return null;
+        String needle = "\"subjects\"";
+        int kIdx = json.indexOf(needle);
+        if (kIdx == -1) return null;
+        int bracketStart = json.indexOf('[', kIdx + needle.length());
+        if (bracketStart == -1) return null;
+
+        ArrayList<String> subNames = new ArrayList<>();
+        ArrayList<String> subMarks = new ArrayList<>();
+        int i = bracketStart + 1;
+        while (i < json.length()) {
+            while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+            if (i >= json.length() || json.charAt(i) == ']') break;
+            if (json.charAt(i) == '{') {
+                int closeObj = json.indexOf('}', i);
+                if (closeObj == -1) break;
+                String objChunk = json.substring(i, closeObj + 1);
+                subNames.add(extractJsonString(objChunk, "subject"));
+                subMarks.add(extractJsonString(objChunk, "mark"));
+                i = closeObj + 1;
+            } else {
+                i++;
+            }
+        }
+        return new String[][]{subNames.toArray(new String[0]), subMarks.toArray(new String[0])};
+    }
+
     private static void handleStaticExchange(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if (path == null || "/".equals(path)) path = "/index.html";
@@ -708,6 +809,119 @@ public class ExamResultManagementSystem {
 
         String message = "Result added. ID: " + newResult.toFullDetailString();
         return new OperationResult(true, message, newResult);
+    }
+
+    /**
+     * Adds a student result with explicit custom subject names and corresponding marks (0 - 100).
+     */
+    public static OperationResult addResultWithNamedSubjects(
+            ArrayList<StudentResult> list, String rawErpId, String rawName, String[] rawSubjectNames, String[] rawMarkStrings) {
+        String resolvedId;
+        if (rawErpId != null && !rawErpId.trim().isEmpty() && !"ERP".equalsIgnoreCase(rawErpId.trim())) {
+            resolvedId = parseErpInput(rawErpId);
+            if (resolvedId == null) {
+                return new OperationResult(false, "Invalid ERP ID. Please enter a valid ERP number.", null);
+            }
+        } else {
+            if (nextIdNumber == null) {
+                updateNextIdNumber(list);
+            }
+            if (nextIdNumber == null) {
+                return new OperationResult(
+                        false,
+                        "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
+                        null);
+            }
+            resolvedId = formatId(nextIdNumber);
+        }
+
+        if (searchById(list, resolvedId) != null) {
+            return new OperationResult(
+                    false,
+                    "Duplicate ERP ID (" + resolvedId + "). A record with this ID already exists.",
+                    null);
+        }
+
+        String cleanName = (rawName == null) ? "" : rawName.replace(",", " ").replace("|", " ").replaceAll("\\s+", " ").trim();
+        if (cleanName.isEmpty()) {
+            return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
+        }
+
+        int len = (rawSubjectNames == null || rawMarkStrings == null)
+                ? 0
+                : Math.min(rawSubjectNames.length, rawMarkStrings.length);
+        while (len > 0) {
+            String s = (rawSubjectNames[len - 1] == null) ? "" : rawSubjectNames[len - 1].trim();
+            String m = (rawMarkStrings[len - 1] == null) ? "" : rawMarkStrings[len - 1].trim();
+            if (s.isEmpty() && m.isEmpty()) {
+                len--;
+            } else {
+                break;
+            }
+        }
+
+        if (len == 0) {
+            return new OperationResult(false, "Please enter at least 1 subject name and its marks (0 - 100).", null);
+        }
+
+        ArrayList<String> validSubjects = new ArrayList<>();
+        ArrayList<Integer> validMarks = new ArrayList<>();
+
+        for (int i = 0; i < len; i++) {
+            String sub = (rawSubjectNames[i] == null) ? ""
+                    : rawSubjectNames[i].replace(",", " ").replace("|", " ").replace(":", " ").replaceAll("\\s+", " ").trim();
+            String mk = (rawMarkStrings[i] == null) ? "" : rawMarkStrings[i].trim();
+            if (sub.isEmpty() && mk.isEmpty()) continue;
+            if (sub.isEmpty()) {
+                return new OperationResult(false, "Please enter the subject name for row #" + (i + 1) + ".", null);
+            }
+            if (mk.isEmpty()) {
+                return new OperationResult(false, "Please enter marks (0 - 100) for \"" + sub + "\".", null);
+            }
+            for (int k = 0; k < validSubjects.size(); k++) {
+                if (validSubjects.get(k).equalsIgnoreCase(sub)) {
+                    return new OperationResult(false, "Duplicate subject \"" + sub + "\".", null);
+                }
+            }
+            int parsedMark;
+            try {
+                parsedMark = Integer.parseInt(mk);
+            } catch (NumberFormatException e) {
+                return new OperationResult(false, "Invalid marks. Each mark must be an integer between 0 and 100.", null);
+            }
+            if (parsedMark < 0 || parsedMark > 100) {
+                return new OperationResult(false, "Invalid marks. Each mark must be between 0 and 100.", null);
+            }
+            validSubjects.add(sub);
+            validMarks.add(parsedMark);
+        }
+
+        if (validSubjects.isEmpty()) {
+            return new OperationResult(false, "Please enter at least 1 subject name and its marks (0 - 100).", null);
+        }
+
+        String[] subArr = validSubjects.toArray(new String[0]);
+        int[] mkArr = new int[validMarks.size()];
+        for (int i = 0; i < validMarks.size(); i++) mkArr[i] = validMarks.get(i);
+
+        StudentResult created = new StudentResult(resolvedId, cleanName, subArr, mkArr);
+        list.add(created);
+        updateNextIdNumber(list);
+
+        return new OperationResult(true, "Result added. ID: " + created.toFullDetailString(), created);
+    }
+
+    /**
+     * Removes a student record by ERP ID using manual Linear Search index lookup.
+     */
+    public static OperationResult removeResultById(ArrayList<StudentResult> list, String targetId) {
+        int idx = findIndexById(list, targetId);
+        if (idx < 0) {
+            return new OperationResult(false, "Result not found for ID: " + targetId, null);
+        }
+        StudentResult removed = list.remove(idx);
+        updateNextIdNumber(list);
+        return new OperationResult(true, "Removed student record: " + removed.getId() + " | " + removed.getName(), removed);
     }
 
     /**
@@ -1035,7 +1249,7 @@ public class ExamResultManagementSystem {
                     for (int s = 0; s < subCount; s++) {
                         marks[s] = base + (s < rem ? 1 : 0);
                     }
-                    return new StudentResult(id, name, marks, total, maxMarks, percentage, result);
+                    return new StudentResult(id, name, null, marks, total, maxMarks, percentage, result);
                 }
             } else if (line.contains(",")) {
                 String[] parts = line.split(",");
@@ -1053,11 +1267,20 @@ public class ExamResultManagementSystem {
                     }
                     int count = markEndExclusive - 2;
                     if (count >= 1) {
+                        String[] subNames = new String[count];
                         int[] marks = new int[count];
                         for (int i = 0; i < count; i++) {
-                            marks[i] = Integer.parseInt(parts[2 + i]);
+                            String token = parts[2 + i];
+                            int colonIdx = token.lastIndexOf(':');
+                            if (colonIdx > 0) {
+                                subNames[i] = token.substring(0, colonIdx).trim();
+                                marks[i] = Integer.parseInt(token.substring(colonIdx + 1).trim());
+                            } else {
+                                subNames[i] = "Subject " + (i + 1);
+                                marks[i] = Integer.parseInt(token.trim());
+                            }
                         }
-                        return new StudentResult(id, name, marks);
+                        return new StudentResult(id, name, subNames, marks);
                     }
                 }
             }
@@ -1268,6 +1491,7 @@ class ExamResultGUI extends JFrame {
     private JTextField nameField;
     private JLabel subjectsCountLabel;
     private JPanel dynamicMarksPanel;
+    private final ArrayList<JTextField> dynamicSubjectNameFields = new ArrayList<>();
     private final ArrayList<JTextField> dynamicMarkFields = new ArrayList<>();
     private boolean updatingDynamicMarks = false;
     private JTextField searchIdField;
@@ -1479,7 +1703,7 @@ class ExamResultGUI extends JFrame {
         marksHeaderRow.add(subjectsCountLabel, BorderLayout.EAST);
         card.add(marksHeaderRow, gbc);
 
-        dynamicMarksPanel = new JPanel(new GridLayout(0, 3, 8, 6));
+        dynamicMarksPanel = new JPanel(new GridLayout(0, 1, 0, 6));
         dynamicMarksPanel.setOpaque(false);
         resetDynamicMarksFields();
 
@@ -1567,12 +1791,14 @@ class ExamResultGUI extends JFrame {
 
         JButton displayAllBtn = createStyledButton("2 - Display All Results", SLATE_BTN, Color.WHITE);
         JButton sortBtn = createStyledButton("4 - Sort by Percentage (High to Low)", INDIGO, Color.WHITE);
+        JButton removeSelectedBtn = createStyledButton("Remove Selected Student", new Color(225, 29, 72), Color.WHITE);
         JButton saveBtn = createStyledButton("Save Now to " + fileName, new Color(22, 163, 74), Color.WHITE);
         JButton clearAllBtn = createStyledButton("Clear All Saved Records", new Color(217, 119, 6), Color.WHITE);
         JButton exitBtn = createStyledButton("5 - Save & Exit", DANGER_BTN, Color.WHITE);
 
         displayAllBtn.addActionListener(e -> onDisplayAll());
         sortBtn.addActionListener(e -> onSortByPercentage());
+        removeSelectedBtn.addActionListener(e -> onRemoveSelectedRecord());
         saveBtn.addActionListener(e -> onSaveNow());
         clearAllBtn.addActionListener(e -> onClearAllRecords());
         exitBtn.addActionListener(e -> saveAndExit());
@@ -1580,6 +1806,7 @@ class ExamResultGUI extends JFrame {
         card.add(title);
         card.add(displayAllBtn);
         card.add(sortBtn);
+        card.add(removeSelectedBtn);
         card.add(saveBtn);
         card.add(clearAllBtn);
         card.add(exitBtn);
@@ -1682,6 +1909,7 @@ class ExamResultGUI extends JFrame {
     private void resetDynamicMarksFields() {
         updatingDynamicMarks = true;
         try {
+            dynamicSubjectNameFields.clear();
             dynamicMarkFields.clear();
             dynamicMarksPanel.removeAll();
             appendSubjectFieldSlot();
@@ -1694,15 +1922,19 @@ class ExamResultGUI extends JFrame {
     }
 
     private void appendSubjectFieldSlot() {
-        int subjectNumber = dynamicMarkFields.size() + 1;
-        JPanel cell = new JPanel(new BorderLayout(0, 2));
-        cell.setOpaque(false);
-        cell.add(createSubCaption("Subject " + subjectNumber), BorderLayout.NORTH);
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
 
-        JTextField tf = createStyledTextField("");
-        tf.setHorizontalAlignment(JTextField.CENTER);
-        tf.addActionListener(e -> onAddResult());
-        tf.getDocument().addDocumentListener(new DocumentListener() {
+        JTextField subNameTf = createStyledTextField("");
+        subNameTf.setToolTipText("Subject name (e.g. DSA, Maths, DBMS)");
+
+        JTextField markTf = createStyledTextField("");
+        markTf.setHorizontalAlignment(JTextField.CENTER);
+        markTf.setPreferredSize(new Dimension(78, 32));
+        markTf.setToolTipText("Marks (0 - 100)");
+        markTf.addActionListener(e -> onAddResult());
+
+        DocumentListener dl = new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
                 SwingUtilities.invokeLater(() -> syncDynamicMarksGrowth());
@@ -1717,11 +1949,20 @@ class ExamResultGUI extends JFrame {
             public void changedUpdate(DocumentEvent e) {
                 SwingUtilities.invokeLater(() -> syncDynamicMarksGrowth());
             }
-        });
+        };
+        subNameTf.getDocument().addDocumentListener(dl);
+        markTf.getDocument().addDocumentListener(dl);
 
-        cell.add(tf, BorderLayout.CENTER);
-        dynamicMarkFields.add(tf);
-        dynamicMarksPanel.add(cell);
+        row.add(subNameTf, BorderLayout.CENTER);
+        row.add(markTf, BorderLayout.EAST);
+        dynamicSubjectNameFields.add(subNameTf);
+        dynamicMarkFields.add(markTf);
+        dynamicMarksPanel.add(row);
+    }
+
+    private boolean isRowBlankAt(int idx) {
+        return dynamicSubjectNameFields.get(idx).getText().trim().isEmpty()
+                && dynamicMarkFields.get(idx).getText().trim().isEmpty();
     }
 
     private void syncDynamicMarksGrowth() {
@@ -1729,16 +1970,17 @@ class ExamResultGUI extends JFrame {
         updatingDynamicMarks = true;
         try {
             boolean changedLayout = false;
-            JTextField last = dynamicMarkFields.get(dynamicMarkFields.size() - 1);
-            if (!last.getText().trim().isEmpty()) {
+            int lastIdx = dynamicMarkFields.size() - 1;
+            if (!isRowBlankAt(lastIdx)) {
                 appendSubjectFieldSlot();
                 changedLayout = true;
             } else {
                 while (dynamicMarkFields.size() > 1) {
                     int n = dynamicMarkFields.size();
-                    JTextField tail = dynamicMarkFields.get(n - 1);
-                    JTextField prev = dynamicMarkFields.get(n - 2);
-                    if (tail.getText().trim().isEmpty() && prev.getText().trim().isEmpty() && !tail.isFocusOwner()) {
+                    boolean tailFocused = dynamicSubjectNameFields.get(n - 1).isFocusOwner()
+                            || dynamicMarkFields.get(n - 1).isFocusOwner();
+                    if (isRowBlankAt(n - 1) && isRowBlankAt(n - 2) && !tailFocused) {
+                        dynamicSubjectNameFields.remove(n - 1);
                         dynamicMarkFields.remove(n - 1);
                         dynamicMarksPanel.remove(n - 1);
                         changedLayout = true;
@@ -1761,7 +2003,7 @@ class ExamResultGUI extends JFrame {
         if (subjectsCountLabel == null) return;
         int filled = 0;
         for (int i = 0; i < dynamicMarkFields.size(); i++) {
-            if (!dynamicMarkFields.get(i).getText().trim().isEmpty()) {
+            if (!isRowBlankAt(i)) {
                 filled++;
             }
         }
@@ -1777,13 +2019,15 @@ class ExamResultGUI extends JFrame {
     private void onAddResult() {
         String rawErp = erpIdField.getText();
         String rawName = nameField.getText();
+        String[] rawSubNames = new String[dynamicSubjectNameFields.size()];
         String[] rawMarks = new String[dynamicMarkFields.size()];
         for (int i = 0; i < dynamicMarkFields.size(); i++) {
+            rawSubNames[i] = dynamicSubjectNameFields.get(i).getText();
             rawMarks[i] = dynamicMarkFields.get(i).getText();
         }
 
-        OperationResult outcome = ExamResultManagementSystem.addResultFromInputs(
-                resultsList, rawErp, rawName, rawMarks);
+        OperationResult outcome = ExamResultManagementSystem.addResultWithNamedSubjects(
+                resultsList, rawErp, rawName, rawSubNames, rawMarks);
         appendLog("> Menu Option 1 (Add Result)");
         appendLog(outcome.getMessage());
 
@@ -1882,6 +2126,23 @@ class ExamResultGUI extends JFrame {
         setBanner(msg, true, false);
     }
 
+    private void onRemoveSelectedRecord() {
+        int selectedRow = resultsTable.getSelectedRow();
+        if (selectedRow < 0 || selectedRow >= resultsList.size()) {
+            setBanner("Select a student row in the table first to remove it.", false, true);
+            return;
+        }
+        String targetId = resultsList.get(selectedRow).getId();
+        OperationResult rem = ExamResultManagementSystem.removeResultById(resultsList, targetId);
+        if (rem.isSuccess()) {
+            ExamResultManagementSystem.saveResultsToFile(resultsList, fileName);
+            refreshTable(false);
+            updateStats();
+            appendLog("> " + rem.getMessage());
+            setBanner(rem.getMessage(), true, false);
+        }
+    }
+
     private void onClearAllRecords() {
         if (resultsList.isEmpty() && !(new File(fileName).exists())
                 && ExamResultManagementSystem.getNextIdNumber() == null) {
@@ -1964,21 +2225,32 @@ class ExamResultGUI extends JFrame {
     }
 
     private void refreshTable(boolean sortedView) {
-        int maxSub = 0;
+        ArrayList<String> uniqueSubjectCols = new ArrayList<>();
         for (int i = 0; i < resultsList.size(); i++) {
-            int sc = resultsList.get(i).getSubjectCount();
-            if (sc > maxSub) maxSub = sc;
+            String[] sNames = resultsList.get(i).getSubjectNames();
+            for (int j = 0; j < sNames.length; j++) {
+                boolean exists = false;
+                for (int k = 0; k < uniqueSubjectCols.size(); k++) {
+                    if (uniqueSubjectCols.get(k).equalsIgnoreCase(sNames[j])) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    uniqueSubjectCols.add(sNames[j]);
+                }
+            }
         }
 
         ArrayList<String> cols = new ArrayList<>();
         cols.add("#");
         cols.add("ERP ID");
         cols.add("Student Name");
-        if (maxSub <= 0) {
+        if (uniqueSubjectCols.isEmpty()) {
             cols.add("Subjects");
         } else {
-            for (int s = 1; s <= maxSub; s++) {
-                cols.add("Sub " + s);
+            for (int s = 0; s < uniqueSubjectCols.size(); s++) {
+                cols.add(uniqueSubjectCols.get(s));
             }
         }
         cols.add("Total");
@@ -1994,11 +2266,11 @@ class ExamResultGUI extends JFrame {
             row[0] = i + 1;
             row[1] = r.getId();
             row[2] = r.getName();
-            for (int s = 0; s < maxSub; s++) {
-                int m = r.getMarkAt(s);
-                row[3 + s] = (m >= 0) ? m : "—";
+            for (int s = 0; s < uniqueSubjectCols.size(); s++) {
+                Integer m = r.findMarkForSubject(uniqueSubjectCols.get(s));
+                row[3 + s] = (m != null) ? m : "—";
             }
-            int tailBase = 3 + (maxSub <= 0 ? 1 : maxSub);
+            int tailBase = 3 + (uniqueSubjectCols.isEmpty() ? 1 : uniqueSubjectCols.size());
             row[tailBase] = r.getTotal() + "/" + r.getMaxMarks();
             row[tailBase + 1] = String.format(Locale.US, "%.2f", r.getPercentage());
             row[tailBase + 2] = r.getResult();

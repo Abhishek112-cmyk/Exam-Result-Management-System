@@ -17,8 +17,10 @@ A full-stack and desktop Exam Result Management System built around custom Data 
 
 ## 🎯 Problem Statement
 Manage student exam results with:
-- **Dynamic Unlimited Subjects**: Enter marks (`0–100` each) in **as many subjects as needed** — the subject input boxes and table columns dynamically grow and shrink automatically based on the subjects entered.
-- **Display all results** stored in memory (`Total: sum / (N * 100)`).
+- **Custom Subject Names + Marks (Unlimited & Dynamic)**: Enter each **Subject Name** (e.g., `DSA`, `DBMS`, `OS`, `Maths`) alongside its **Marks (`0–100`)** — input rows and table subject columns dynamically grow and shrink automatically.
+- **Firebase Realtime Database Live Sync**: Automatically updates **Firebase Realtime Database** in real time whenever a student record is added, sorted, or removed.
+- **Per-Student Remove & Full Reset**: Remove any individual student row or clear all records with instant database synchronization.
+- **Display all results** stored in memory/database (`Total: sum / (N * 100)`).
 - **Search by ERP ID** using manual Linear Search (flexible case/space/number matching).
 - **Sort results by percentage (high to low)** using manual in-place Adaptive Bubble Sort.
 - **Persistence**: Load existing records from `results.txt` at startup and save automatically (and via `@netlify/blobs` when deployed on Netlify).

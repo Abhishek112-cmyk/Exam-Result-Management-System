@@ -15,8 +15,12 @@
       <div class="brand-title-row">
         <h1>Exam Result Management System</h1>
         <span class="pill-tag">PS No. 48</span>
+        <span class="db-status-pill" id="dbStatusPill" title="Database synchronization status">
+          <span class="db-dot"></span>
+          <span id="dbStatusText">Connecting DB…</span>
+        </span>
       </div>
-      <p class="brand-subtitle">Subjects (/100 each) &nbsp;•&nbsp; Pass &ge; 40.00% &nbsp;•&nbsp; Persistent Storage: <code>results.txt</code></p>
+      <p class="brand-subtitle">Subjects (/100 each) &nbsp;•&nbsp; Pass &ge; 40.00% &nbsp;•&nbsp; Firebase Realtime Database Sync</p>
     </div>
 
     <div class="header-right">
@@ -47,7 +51,7 @@
     <!-- Live Feedback Banner -->
     <div class="status-banner info" id="statusBanner" role="status">
       <span class="status-dot"></span>
-      <span id="statusBannerText">Ready. Each subject out of 100 | Pass percentage: 40.00</span>
+      <span id="statusBannerText">Ready. Enter subject names and marks (0 - 100 each) | Pass percentage: 40.00</span>
     </div>
 
     <div class="workspace-grid">
@@ -85,8 +89,14 @@
               <span class="subjects-count-pill" id="subjectsCountPill">0 subjects</span>
             </div>
 
-            <div class="marks-grid" id="marksGrid">
-              <!-- Dynamically grows & shrinks automatically as marks are entered -->
+            <div class="subject-col-captions">
+              <span>Subject Name</span>
+              <span style="text-align:center;">Marks</span>
+              <span></span>
+            </div>
+
+            <div class="subject-rows-list" id="subjectRowsList">
+              <!-- Dynamically grows & shrinks automatically as subjects & marks are entered -->
             </div>
 
             <div class="btn-row">
@@ -142,18 +152,19 @@
             <table class="results-table">
               <thead>
                 <tr id="resultsTableHeadRow">
-                  <th class="center" style="width:48px;">#</th>
-                  <th class="center" style="width:115px;">ERP ID</th>
+                  <th class="center" style="width:46px;">#</th>
+                  <th class="center" style="width:110px;">ERP ID</th>
                   <th>Student Name</th>
                   <th class="center">Subjects</th>
-                  <th class="center" style="width:105px;">Total</th>
-                  <th class="center" style="width:108px;">Percentage</th>
-                  <th class="center" style="width:94px;">Result</th>
+                  <th class="center" style="width:100px;">Total</th>
+                  <th class="center" style="width:105px;">Percentage</th>
+                  <th class="center" style="width:88px;">Result</th>
+                  <th class="center" style="width:82px;">Action</th>
                 </tr>
               </thead>
               <tbody id="resultsTableBody">
                 <tr class="empty-row">
-                  <td colspan="7">No student results saved yet. Enter an ERP ID, student name, and subject marks on the left to begin.</td>
+                  <td colspan="8">No student results saved yet. Enter an ERP ID, student name, and subject names + marks on the left to begin.</td>
                 </tr>
               </tbody>
             </table>
@@ -176,7 +187,7 @@
   <div class="modal-backdrop" id="confirmModal" aria-hidden="true">
     <div class="modal-dialog">
       <h3>Clear All Saved Records?</h3>
-      <p>This will remove all saved student records and reset the auto-detected ERP ID back to <strong>ERP</strong>.</p>
+      <p>This will remove all student records from the database and reset the auto-detected ERP ID back to <strong>ERP</strong>.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" type="button" id="cancelClearBtn">Cancel</button>
         <button class="btn btn-danger" type="button" id="confirmClearBtn">Yes, Clear All</button>
@@ -187,6 +198,6 @@
   <!-- Toast container -->
   <div class="toast-stack" id="toastStack"></div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

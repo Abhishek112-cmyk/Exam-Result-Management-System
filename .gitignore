@@ -25,4 +25,5 @@ results.txt
 .netlify
 node_modules
 package-lock.json
+firebase-debug.log
 

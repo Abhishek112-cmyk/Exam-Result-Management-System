@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "examResults": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}

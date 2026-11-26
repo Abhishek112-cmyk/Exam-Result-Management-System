@@ -1,9 +1,15 @@
 import type { Config, Context } from "@netlify/functions";
 import { getDeployStore, getStore } from "@netlify/blobs";
 
+interface SubjectEntry {
+  subject: string;
+  mark: number;
+}
+
 interface StudentRecord {
   id: string;
   name: string;
+  subjects: SubjectEntry[];
   marks: number[];
   total: number;
   maxMarks: number;
@@ -11,8 +17,15 @@ interface StudentRecord {
   result: "Pass" | "Fail";
 }
 
-const BLOB_KEY = "results.txt";
-let memoryFallbackTxt = "";
+const BLOB_KEY = "results_v4.json";
+let memoryFallbackRecords: StudentRecord[] = [];
+
+const DEFAULT_FIREBASE_DB_URL = "https://exam-result-management-system-default-rtdb.firebaseio.com";
+
+function getFirebaseDbUrl(): string {
+  const raw = (process.env.FIREBASE_DATABASE_URL ?? DEFAULT_FIREBASE_DB_URL).trim().replace(/\/+$/, "");
+  return raw;
+}
 
 function formatId(num: number): string {
   return `ERP ${num}`;
@@ -36,17 +49,27 @@ function normalizeIdKey(raw: string): string {
   return cleaned;
 }
 
-function createStudentRecord(id: string, name: string, marks: number[]): StudentRecord {
+function sanitizeText(raw: string): string {
+  return (raw ?? "")
+    .replace(/[,|:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function createStudentRecord(id: string, name: string, subjects: SubjectEntry[]): StudentRecord {
   let total = 0;
-  for (let i = 0; i < marks.length; i++) {
-    total += marks[i];
+  const marks: number[] = [];
+  for (let i = 0; i < subjects.length; i++) {
+    marks.push(subjects[i].mark);
+    total += subjects[i].mark;
   }
-  const maxMarks = marks.length * 100;
+  const maxMarks = subjects.length * 100;
   const rawPct = maxMarks > 0 ? (total * 100.0) / maxMarks : 0;
   const result: "Pass" | "Fail" = rawPct >= 40.0 ? "Pass" : "Fail";
   return {
     id,
     name,
+    subjects,
     marks,
     total,
     maxMarks,
@@ -55,61 +78,48 @@ function createStudentRecord(id: string, name: string, marks: number[]): Student
   };
 }
 
+function normalizeStoredRecord(raw: Record<string, unknown>): StudentRecord | null {
+  const id = parseErpInput(String(raw.id ?? "")) ?? String(raw.id ?? "").trim();
+  const name = sanitizeText(String(raw.name ?? ""));
+  if (!id || !name) return null;
+
+  const subjects: SubjectEntry[] = [];
+  if (Array.isArray(raw.subjects)) {
+    for (let i = 0; i < raw.subjects.length; i++) {
+      const item = raw.subjects[i] as Record<string, unknown>;
+      const subName = sanitizeText(String(item?.subject ?? `Subject ${i + 1}`));
+      const mark = Number(item?.mark);
+      if (subName && !Number.isNaN(mark)) {
+        subjects.push({ subject: subName, mark });
+      }
+    }
+  } else if (Array.isArray(raw.marks)) {
+    for (let i = 0; i < raw.marks.length; i++) {
+      const mark = Number(raw.marks[i]);
+      if (!Number.isNaN(mark)) {
+        subjects.push({ subject: `Subject ${i + 1}`, mark });
+      }
+    }
+  }
+
+  if (subjects.length === 0) return null;
+  return createStudentRecord(id, name, subjects);
+}
+
+function formatSubjectsInline(r: StudentRecord): string {
+  const parts: string[] = [];
+  for (let i = 0; i < r.subjects.length; i++) {
+    parts.push(`${r.subjects[i].subject}: ${r.subjects[i].mark}`);
+  }
+  return parts.join(", ");
+}
+
 function toFullDetailString(r: StudentRecord): string {
-  return `${r.id} | ${r.name} | Total: ${r.total}/${r.maxMarks} | Percentage: ${r.percentage.toFixed(2)} | Result: ${r.result}`;
+  return `${r.id} | ${r.name} | [${formatSubjectsInline(r)}] | Total: ${r.total}/${r.maxMarks} | Percentage: ${r.percentage.toFixed(2)} | Result: ${r.result}`;
 }
 
 function toSortString(r: StudentRecord): string {
   return `${r.id} | ${r.name} | ${r.percentage.toFixed(2)} | ${r.result}`;
-}
-
-function toFileString(r: StudentRecord): string {
-  return `${r.id},${r.name},${r.marks.join(",")},${r.total},${r.percentage.toFixed(2)},${r.result}`;
-}
-
-function parseResultsTxt(txt: string): StudentRecord[] {
-  const list: StudentRecord[] = [];
-  if (!txt) return list;
-  const lines = txt.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line || line.startsWith("#")) continue;
-    const parts = line.split(",").map((s) => s.trim());
-    if (parts.length < 3) continue;
-
-    const parsedId = parseErpInput(parts[0]) ?? parts[0];
-    const name = parts[1];
-    const lastToken = parts[parts.length - 1].toLowerCase();
-
-    let markEndExclusive = parts.length;
-    if ((lastToken === "pass" || lastToken === "fail") && parts.length >= 6) {
-      markEndExclusive = parts.length - 3;
-    }
-
-    const marks: number[] = [];
-    let valid = true;
-    for (let j = 2; j < markEndExclusive; j++) {
-      const m = parseInt(parts[j], 10);
-      if (Number.isNaN(m)) {
-        valid = false;
-        break;
-      }
-      marks.push(m);
-    }
-
-    if (valid && marks.length >= 1) {
-      list.push(createStudentRecord(parsedId, name, marks));
-    }
-  }
-  return list;
-}
-
-function serializeResultsTxt(list: StudentRecord[]): string {
-  const lines: string[] = [];
-  for (let i = 0; i < list.length; i++) {
-    lines.push(toFileString(list[i]));
-  }
-  return lines.join("\n");
 }
 
 function computeNextId(list: StudentRecord[]): string {
@@ -161,22 +171,85 @@ function sortByPercentage(list: StudentRecord[]): void {
   }
 }
 
+/**
+ * Loads records from Firebase Realtime Database (primary) with Netlify Blobs fallback.
+ */
 async function loadRecords(context: Context): Promise<StudentRecord[]> {
+  const fbUrl = getFirebaseDbUrl();
+  if (fbUrl) {
+    try {
+      const res = await fetch(`${fbUrl}/examResults.json`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { records?: unknown[] } | unknown[] | null;
+        if (!data) return [];
+        const rawList = Array.isArray(data)
+          ? data
+          : Array.isArray(data.records)
+          ? data.records
+          : Object.values(data as Record<string, unknown>);
+        const parsed: StudentRecord[] = [];
+        for (let i = 0; i < rawList.length; i++) {
+          if (rawList[i] && typeof rawList[i] === "object") {
+            const norm = normalizeStoredRecord(rawList[i] as Record<string, unknown>);
+            if (norm) parsed.push(norm);
+          }
+        }
+        return parsed;
+      }
+    } catch {
+      // Fall through to secondary store if network error
+    }
+  }
+
   try {
     const store =
       context.deploy?.context === "production"
         ? getStore({ name: "exam-results", consistency: "strong" })
         : getDeployStore("exam-results");
-    const txt = await store.get(BLOB_KEY);
-    return parseResultsTxt(txt ?? "");
+    const rawJson = await store.get(BLOB_KEY);
+    if (!rawJson) return [];
+    const arr = JSON.parse(rawJson) as Record<string, unknown>[];
+    const parsed: StudentRecord[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const norm = normalizeStoredRecord(arr[i]);
+      if (norm) parsed.push(norm);
+    }
+    return parsed;
   } catch {
-    return parseResultsTxt(memoryFallbackTxt);
+    return memoryFallbackRecords.slice();
   }
 }
 
+/**
+ * Persists records to Firebase Realtime Database automatically on every Add / Remove / Sort / Clear.
+ */
 async function saveRecords(context: Context, list: StudentRecord[]): Promise<void> {
-  const txt = serializeResultsTxt(list);
-  memoryFallbackTxt = txt;
+  memoryFallbackRecords = list.slice();
+  const fbUrl = getFirebaseDbUrl();
+
+  if (fbUrl) {
+    try {
+      if (list.length === 0) {
+        await fetch(`${fbUrl}/examResults.json`, { method: "DELETE" });
+      } else {
+        await fetch(`${fbUrl}/examResults.json`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            updatedAt: Date.now(),
+            nextId: computeNextId(list),
+            records: list,
+          }),
+        });
+      }
+    } catch {
+      // Continue to secondary backup store
+    }
+  }
+
   try {
     const store =
       context.deploy?.context === "production"
@@ -185,65 +258,113 @@ async function saveRecords(context: Context, list: StudentRecord[]): Promise<voi
     if (list.length === 0) {
       await store.delete(BLOB_KEY);
     } else {
-      await store.set(BLOB_KEY, txt);
+      await store.set(BLOB_KEY, JSON.stringify(list));
     }
   } catch {
-    // Fallback already stored in memoryFallbackTxt for local unlinked dev
+    // Kept in memoryFallbackRecords for unlinked local dev
   }
 }
 
-function parseMarksPayload(body: Record<string, unknown>): { ok: boolean; marks: number[]; error: string } {
-  let rawEntries: string[] = [];
+function parseSubjectsPayload(body: Record<string, unknown>): {
+  ok: boolean;
+  subjects: SubjectEntry[];
+  error: string;
+} {
+  if (Array.isArray(body.subjects)) {
+    const rawRows = body.subjects.map((item) => {
+      const obj = (item ?? {}) as Record<string, unknown>;
+      return {
+        subject: sanitizeText(String(obj.subject ?? "")),
+        markStr: String(obj.mark ?? "").trim(),
+      };
+    });
 
-  if (Array.isArray(body.marks)) {
-    rawEntries = body.marks.map((v) => String(v ?? "").trim());
-  } else if (typeof body.marks === "string") {
-    rawEntries = body.marks
-      .trim()
-      .split(/[,\s]+/)
-      .filter((s) => s.length > 0);
-  } else if (body.m1 !== undefined || body.m2 !== undefined || body.m3 !== undefined) {
-    rawEntries = [String(body.m1 ?? "").trim(), String(body.m2 ?? "").trim(), String(body.m3 ?? "").trim()];
-  }
+    // Strip trailing completely empty auto-grow rows
+    while (
+      rawRows.length > 0 &&
+      rawRows[rawRows.length - 1].subject === "" &&
+      rawRows[rawRows.length - 1].markStr === ""
+    ) {
+      rawRows.pop();
+    }
 
-  // Trim trailing empty slots (from the auto-growing blank input at the end)
-  while (rawEntries.length > 0 && rawEntries[rawEntries.length - 1] === "") {
-    rawEntries.pop();
-  }
-
-  if (rawEntries.length === 0) {
-    return { ok: false, marks: [], error: "Invalid marks. Please enter marks for at least 1 subject." };
-  }
-
-  // Expand any space/comma-separated entries and reject empty gaps between filled subjects
-  const tokens: string[] = [];
-  for (let i = 0; i < rawEntries.length; i++) {
-    if (rawEntries[i] === "") {
+    if (rawRows.length === 0) {
       return {
         ok: false,
-        marks: [],
-        error: `Please enter marks for Subject ${i + 1} or clear empty gaps between subjects.`,
+        subjects: [],
+        error: "Please enter at least 1 subject name and its marks (0 - 100).",
       };
     }
-    const split = rawEntries[i].split(/[,\s]+/).filter((s) => s.length > 0);
-    for (let k = 0; k < split.length; k++) {
-      tokens.push(split[k]);
+
+    const result: SubjectEntry[] = [];
+    const seenNames: string[] = [];
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      if (row.subject === "" && row.markStr === "") {
+        continue;
+      }
+      if (row.subject === "") {
+        return {
+          ok: false,
+          subjects: [],
+          error: `Please enter the subject name for row #${i + 1}.`,
+        };
+      }
+      if (row.markStr === "") {
+        return {
+          ok: false,
+          subjects: [],
+          error: `Please enter marks (0 - 100) for "${row.subject}".`,
+        };
+      }
+
+      const lowerKey = row.subject.toLowerCase();
+      for (let s = 0; s < seenNames.length; s++) {
+        if (seenNames[s] === lowerKey) {
+          return {
+            ok: false,
+            subjects: [],
+            error: `Duplicate subject "${row.subject}". Each subject for a student should have a unique name.`,
+          };
+        }
+      }
+      seenNames.push(lowerKey);
+
+      const num = Number(row.markStr);
+      if (!Number.isInteger(num)) {
+        return {
+          ok: false,
+          subjects: [],
+          error: `Invalid marks for "${row.subject}". Each mark must be an integer between 0 and 100.`,
+        };
+      }
+      if (num < 0 || num > 100) {
+        return {
+          ok: false,
+          subjects: [],
+          error: "Invalid marks. Each mark must be between 0 and 100.",
+        };
+      }
+      result.push({ subject: row.subject, mark: num });
     }
+
+    if (result.length === 0) {
+      return {
+        ok: false,
+        subjects: [],
+        error: "Please enter at least 1 subject name and its marks (0 - 100).",
+      };
+    }
+
+    return { ok: true, subjects: result, error: "" };
   }
 
-  const parsed: number[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const num = Number(tokens[i]);
-    if (!Number.isInteger(num)) {
-      return { ok: false, marks: [], error: "Invalid marks. Each mark must be an integer between 0 and 100." };
-    }
-    if (num < 0 || num > 100) {
-      return { ok: false, marks: [], error: "Invalid marks. Each mark must be between 0 and 100." };
-    }
-    parsed.push(num);
-  }
-
-  return { ok: true, marks: parsed, error: "" };
+  return {
+    ok: false,
+    subjects: [],
+    error: "Please enter at least 1 subject name and its marks (0 - 100).",
+  };
 }
 
 function buildPayload(
@@ -257,12 +378,14 @@ function buildPayload(
   for (let i = 0; i < list.length; i++) {
     if (list[i].result === "Pass") pass++;
   }
+  const fbUrl = getFirebaseDbUrl();
   return {
     success,
     message,
     nextId: computeNextId(list),
     matchedIndex,
     record,
+    firebaseDatabaseUrl: fbUrl || null,
     stats: {
       total: list.length,
       pass,
@@ -325,10 +448,7 @@ export default async (req: Request, context: Context) => {
         );
       }
 
-      const rawName = String(body.name ?? "")
-        .replace(/[,|]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const rawName = sanitizeText(String(body.name ?? ""));
       if (!rawName) {
         return Response.json(
           buildPayload(list, false, "Invalid name. Name cannot be empty.", null, -1),
@@ -336,17 +456,39 @@ export default async (req: Request, context: Context) => {
         );
       }
 
-      const parsedMarks = parseMarksPayload(body);
-      if (!parsedMarks.ok) {
-        return Response.json(buildPayload(list, false, parsedMarks.error, null, -1), { status: 400 });
+      const parsedSubjects = parseSubjectsPayload(body);
+      if (!parsedSubjects.ok) {
+        return Response.json(buildPayload(list, false, parsedSubjects.error, null, -1), { status: 400 });
       }
 
-      const created = createStudentRecord(resolvedId, rawName, parsedMarks.marks);
+      const created = createStudentRecord(resolvedId, rawName, parsedSubjects.subjects);
       list.push(created);
       await saveRecords(context, list);
 
       const msg = `Result added. ID: ${toFullDetailString(created)}`;
       return Response.json(buildPayload(list, true, msg, created, list.length - 1));
+    }
+
+    if (action === "remove") {
+      const targetId = String(body.id ?? "").trim();
+      if (!targetId) {
+        return Response.json(
+          buildPayload(list, false, "Please specify an ERP ID to remove.", null, -1),
+          { status: 400 }
+        );
+      }
+      const { record, index } = searchById(list, targetId);
+      if (!record || index < 0) {
+        return Response.json(
+          buildPayload(list, false, `Result not found for ID: ${targetId}`, null, -1),
+          { status: 404 }
+        );
+      }
+      list.splice(index, 1);
+      await saveRecords(context, list);
+      return Response.json(
+        buildPayload(list, true, `Removed student record: ${record.id} | ${record.name}`, null, -1)
+      );
     }
 
     if (action === "search") {

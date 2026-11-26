@@ -1,23 +1,25 @@
-// Exam Result Management System — Smooth Frontend Controller
-// Connects to /api/results (Netlify Serverless Function or Java HTTP Backend),
-// with seamless localStorage fallback when opened offline.
-// Supports dynamic auto-growing & auto-shrinking subjects and auto-detected ERP IDs.
+// Exam Result Management System — Smooth Frontend Controller + Firebase Realtime Database Live Sync
+// Dynamically grows & shrinks custom [Subject Name + Marks] rows and syncs in real time with Firebase RTDB.
 
-const LOCAL_STORAGE_KEY = "exam_results_erp_v3";
+const LOCAL_STORAGE_KEY = "exam_results_erp_v4";
 
 let appRecords = [];
 let nextErpId = "ERP";
-let backendOnline = true;
+let activeFirebaseUrl = null;
+let realtimeConnected = false;
+let firebaseUnsubscribe = null;
 
 // DOM references
 const statNextErp = document.getElementById("statNextErp");
 const statTotal = document.getElementById("statTotal");
 const statPass = document.getElementById("statPass");
 const statFail = document.getElementById("statFail");
+const dbStatusPill = document.getElementById("dbStatusPill");
+const dbStatusText = document.getElementById("dbStatusText");
 const formErpBadge = document.getElementById("formErpBadge");
 const erpHintLabel = document.getElementById("erpHintLabel");
 const subjectsCountPill = document.getElementById("subjectsCountPill");
-const marksGrid = document.getElementById("marksGrid");
+const subjectRowsList = document.getElementById("subjectRowsList");
 const statusBanner = document.getElementById("statusBanner");
 const statusBannerText = document.getElementById("statusBannerText");
 const tableMetaLabel = document.getElementById("tableMetaLabel");
@@ -29,148 +31,234 @@ const erpIdInput = document.getElementById("erpIdInput");
 const studentNameInput = document.getElementById("studentName");
 const searchIdInput = document.getElementById("searchIdInput");
 
-// ---------- Dynamic Auto-Grow / Auto-Shrink Subject Inputs ----------
-function createMarkCell(subjectIndex, initialValue = "", isOptionalSlot = false) {
-  const cell = document.createElement("div");
-  cell.className = isOptionalSlot ? "mark-cell optional-slot" : "mark-cell";
+const FIREBASE_WEB_CONFIG = {
+  apiKey: "AIzaSyCM_wupwp6qfxX8GEGtM1jmzfx_VXpG7ZA",
+  authDomain: "exam-result-management-system.firebaseapp.com",
+  databaseURL: "https://exam-result-management-system-default-rtdb.firebaseio.com",
+  projectId: "exam-result-management-system",
+  storageBucket: "exam-result-management-system.firebasestorage.app",
+  messagingSenderId: "697046179729",
+  appId: "1:697046179729:web:9683dd22c0087edff7c430",
+};
 
-  const label = document.createElement("span");
-  label.textContent = `Subject ${subjectIndex}`;
-
-  const input = document.createElement("input");
-  input.className = "text-input mark-input";
-  input.type = "text";
-  input.inputMode = "numeric";
-  input.placeholder = isOptionalSlot ? "+ add" : "0-100";
-  input.value = initialValue;
-
-  input.addEventListener("input", () => handleMarkInputChange(input));
-  input.addEventListener("blur", () => pruneTrailingBlankMarkCells(false));
-
-  cell.appendChild(label);
-  cell.appendChild(input);
-  return cell;
+// ---------- Firebase Realtime Database Live Subscription ----------
+function setDbBadge(text, state) {
+  dbStatusText.textContent = text;
+  dbStatusPill.className = `db-status-pill ${state}`;
 }
 
-function getMarkInputs() {
-  return Array.from(marksGrid.querySelectorAll(".mark-input"));
+async function ensureFirebaseRealtimeSubscription(databaseURL = FIREBASE_WEB_CONFIG.databaseURL) {
+  const targetUrl = databaseURL || FIREBASE_WEB_CONFIG.databaseURL;
+  if (!targetUrl || targetUrl === activeFirebaseUrl) return;
+  activeFirebaseUrl = targetUrl;
+
+  try {
+    const [{ initializeApp, getApps }, { getDatabase, ref, onValue }] = await Promise.all([
+      import("https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/11.4.0/firebase-database.js"),
+    ]);
+
+    const existing = getApps();
+    const app = existing.length
+      ? existing[0]
+      : initializeApp({ ...FIREBASE_WEB_CONFIG, databaseURL: targetUrl });
+    const db = getDatabase(app, targetUrl);
+    const resultsRef = ref(db, "examResults");
+
+    if (firebaseUnsubscribe) firebaseUnsubscribe();
+
+    firebaseUnsubscribe = onValue(
+      resultsRef,
+      (snapshot) => {
+        realtimeConnected = true;
+        setDbBadge("Firebase Realtime DB Live", "live");
+        const val = snapshot.val();
+        let rawList = [];
+        if (val) {
+          if (Array.isArray(val)) rawList = val;
+          else if (Array.isArray(val.records)) rawList = val.records;
+          else if (val.records && typeof val.records === "object") rawList = Object.values(val.records);
+        }
+        const normalized = rawList.filter(Boolean).map(normalizeRecordShape);
+        let pass = 0;
+        for (let i = 0; i < normalized.length; i++) {
+          if (normalized[i].result === "Pass") pass++;
+        }
+        saveLocalFallback(normalized);
+        renderState(
+          {
+            records: normalized,
+            nextId: computeNextId(normalized),
+            stats: { total: normalized.length, pass, fail: normalized.length - pass },
+          },
+          { syncErpInput: document.activeElement !== erpIdInput }
+        );
+      },
+      () => {
+        setDbBadge("Cloud Sync Active", "cloud");
+      }
+    );
+  } catch {
+    setDbBadge("Cloud API Active", "cloud");
+  }
 }
 
-function refreshMarkLabelsAndCount() {
-  const cells = Array.from(marksGrid.querySelectorAll(".mark-cell"));
-  let filledCount = 0;
+// ---------- Dynamic Auto-Grow / Auto-Shrink [Subject Name + Marks] Rows ----------
+function createSubjectRow(index, initialSubject = "", initialMark = "", isOptional = false) {
+  const row = document.createElement("div");
+  row.className = isOptional ? "subject-entry-row optional-slot" : "subject-entry-row";
 
-  for (let i = 0; i < cells.length; i++) {
-    const span = cells[i].querySelector("span");
-    const inp = cells[i].querySelector(".mark-input");
-    if (span) span.textContent = `Subject ${i + 1}`;
-    const hasVal = inp && inp.value.trim() !== "";
-    if (hasVal) filledCount++;
+  const subInput = document.createElement("input");
+  subInput.className = "text-input subject-name-input";
+  subInput.type = "text";
+  subInput.placeholder = isOptional ? "+ Next subject name" : `e.g. Subject ${index}`;
+  subInput.value = initialSubject;
 
-    const isTrailingEmpty = i > 0 && i === cells.length - 1 && !hasVal;
-    cells[i].classList.toggle("optional-slot", isTrailingEmpty);
-    if (inp) {
-      inp.placeholder = isTrailingEmpty ? "+ add" : "0-100";
+  const markInput = document.createElement("input");
+  markInput.className = "text-input subject-mark-input";
+  markInput.type = "text";
+  markInput.inputMode = "numeric";
+  markInput.placeholder = "0-100";
+  markInput.value = initialMark;
+
+  const removeRowBtn = document.createElement("button");
+  removeRowBtn.type = "button";
+  removeRowBtn.className = "row-remove-icon";
+  removeRowBtn.title = "Remove this subject row";
+  removeRowBtn.textContent = "✕";
+
+  const onRowEdit = () => handleSubjectRowsChange();
+  subInput.addEventListener("input", onRowEdit);
+  markInput.addEventListener("input", onRowEdit);
+  subInput.addEventListener("blur", () => pruneTrailingBlankSubjectRows(false));
+  markInput.addEventListener("blur", () => pruneTrailingBlankSubjectRows(false));
+
+  removeRowBtn.addEventListener("click", () => {
+    const rows = getSubjectRowElements();
+    if (rows.length <= 1) {
+      subInput.value = "";
+      markInput.value = "";
+    } else {
+      row.remove();
+    }
+    handleSubjectRowsChange();
+  });
+
+  row.appendChild(subInput);
+  row.appendChild(markInput);
+  row.appendChild(removeRowBtn);
+  return row;
+}
+
+function getSubjectRowElements() {
+  return Array.from(subjectRowsList.querySelectorAll(".subject-entry-row"));
+}
+
+function isRowEmpty(rowEl) {
+  const s = rowEl.querySelector(".subject-name-input")?.value.trim() || "";
+  const m = rowEl.querySelector(".subject-mark-input")?.value.trim() || "";
+  return s === "" && m === "";
+}
+
+function refreshSubjectRowMetadata() {
+  const rows = getSubjectRowElements();
+  let activeCount = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const subInp = rows[i].querySelector(".subject-name-input");
+    const removeBtn = rows[i].querySelector(".row-remove-icon");
+    const empty = isRowEmpty(rows[i]);
+    if (!empty) activeCount++;
+
+    const isTrailingOptional = i > 0 && i === rows.length - 1 && empty;
+    rows[i].classList.toggle("optional-slot", isTrailingOptional);
+
+    if (subInp) {
+      subInp.placeholder = isTrailingOptional ? "+ Add another subject" : "e.g. DSA / Maths";
+    }
+    if (removeBtn) {
+      removeBtn.style.visibility = isTrailingOptional && rows.length > 1 ? "hidden" : "visible";
     }
   }
 
-  if (filledCount === 0) {
+  if (activeCount === 0) {
     subjectsCountPill.textContent = "0 subjects";
-  } else if (filledCount === 1) {
+  } else if (activeCount === 1) {
     subjectsCountPill.textContent = "1 subject (/100)";
   } else {
-    subjectsCountPill.textContent = `${filledCount} subjects (/${filledCount * 100})`;
+    subjectsCountPill.textContent = `${activeCount} subjects (/${activeCount * 100})`;
   }
 }
 
-function handleMarkInputChange(changedInput) {
-  const rawVal = changedInput.value;
-
-  // Support pasting space/comma-separated marks like "80 70 90 85 95" into any box
-  if (/[,\s]+/.test(rawVal.trim())) {
-    const parts = rawVal.trim().split(/[,\s]+/).filter(Boolean);
-    if (parts.length > 1) {
-      const inputs = getMarkInputs();
-      const startIdx = inputs.indexOf(changedInput);
-      if (startIdx !== -1) {
-        for (let k = 0; k < parts.length; k++) {
-          const targetIdx = startIdx + k;
-          const currentInputs = getMarkInputs();
-          if (targetIdx < currentInputs.length) {
-            currentInputs[targetIdx].value = parts[k];
-          } else {
-            marksGrid.appendChild(createMarkCell(currentInputs.length + 1, parts[k], false));
-          }
-        }
-        const afterInputs = getMarkInputs();
-        if (afterInputs[afterInputs.length - 1].value.trim() !== "") {
-          marksGrid.appendChild(createMarkCell(afterInputs.length + 1, "", true));
-        }
-        pruneTrailingBlankMarkCells(true);
-        refreshMarkLabelsAndCount();
-        const updatedInputs = getMarkInputs();
-        const focusIdx = Math.min(startIdx + parts.length - 1, updatedInputs.length - 1);
-        updatedInputs[focusIdx].focus();
-        return;
-      }
-    }
+function handleSubjectRowsChange() {
+  const rows = getSubjectRowElements();
+  if (rows.length === 0) {
+    subjectRowsList.appendChild(createSubjectRow(1, "", "", false));
+    refreshSubjectRowMetadata();
+    return;
   }
 
-  const inputs = getMarkInputs();
-  const lastInput = inputs[inputs.length - 1];
-
-  // Auto-Grow: as soon as the last box has a value, append the next Subject slot
-  if (lastInput && lastInput.value.trim() !== "") {
-    marksGrid.appendChild(createMarkCell(inputs.length + 1, "", true));
+  const lastRow = rows[rows.length - 1];
+  if (!isRowEmpty(lastRow)) {
+    // Auto-Grow: append next optional subject row immediately
+    subjectRowsList.appendChild(createSubjectRow(rows.length + 1, "", "", true));
   } else {
-    // Auto-Shrink: collapse extra empty trailing boxes automatically
-    pruneTrailingBlankMarkCells(true);
+    // Auto-Shrink: remove extra empty trailing rows
+    pruneTrailingBlankSubjectRows(true);
   }
-
-  refreshMarkLabelsAndCount();
+  refreshSubjectRowMetadata();
 }
 
-function pruneTrailingBlankMarkCells(protectFocused) {
-  let cells = Array.from(marksGrid.querySelectorAll(".mark-cell"));
-  while (cells.length > 1) {
-    const lastCell = cells[cells.length - 1];
-    const prevCell = cells[cells.length - 2];
-    const lastInput = lastCell.querySelector(".mark-input");
-    const prevInput = prevCell.querySelector(".mark-input");
+function pruneTrailingBlankSubjectRows(protectFocused) {
+  let rows = getSubjectRowElements();
+  while (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    const prev = rows[rows.length - 2];
+    const focusInsideLast = last.contains(document.activeElement);
 
-    if (
-      lastInput.value.trim() === "" &&
-      prevInput.value.trim() === "" &&
-      (!protectFocused || document.activeElement !== lastInput)
-    ) {
-      lastCell.remove();
-      cells.pop();
+    if (isRowEmpty(last) && isRowEmpty(prev) && (!protectFocused || !focusInsideLast)) {
+      last.remove();
+      rows.pop();
     } else {
       break;
     }
   }
-  refreshMarkLabelsAndCount();
+  refreshSubjectRowMetadata();
 }
 
-function resetMarksGrid() {
-  marksGrid.innerHTML = "";
-  marksGrid.appendChild(createMarkCell(1, "", false));
-  refreshMarkLabelsAndCount();
+function resetSubjectRows() {
+  subjectRowsList.innerHTML = "";
+  subjectRowsList.appendChild(createSubjectRow(1, "", "", false));
+  refreshSubjectRowMetadata();
 }
 
-function collectRawMarkValues() {
-  return getMarkInputs().map((inp) => inp.value.trim());
+function collectSubjectEntries() {
+  return getSubjectRowElements().map((row) => ({
+    subject: row.querySelector(".subject-name-input")?.value.trim() || "",
+    mark: row.querySelector(".subject-mark-input")?.value.trim() || "",
+  }));
 }
 
 // ---------- Record Normalization & Offline Fallback Engine ----------
 function normalizeRecordShape(r) {
-  const marks = Array.isArray(r.marks)
-    ? r.marks.map(Number)
-    : [r.mark1, r.mark2, r.mark3].filter((v) => v !== undefined && v !== null).map(Number);
-  const maxMarks = r.maxMarks || marks.length * 100;
+  let subjects = [];
+  if (Array.isArray(r.subjects) && r.subjects.length > 0) {
+    subjects = r.subjects.map((s, idx) => ({
+      subject: String(s.subject || `Subject ${idx + 1}`).trim(),
+      mark: Number(s.mark),
+    }));
+  } else if (Array.isArray(r.marks)) {
+    subjects = r.marks.map((m, idx) => ({
+      subject: `Subject ${idx + 1}`,
+      mark: Number(m),
+    }));
+  }
+  const marks = subjects.map((s) => s.mark);
+  const maxMarks = r.maxMarks || subjects.length * 100;
   return {
     id: r.id,
     name: r.name,
+    subjects,
     marks,
     total: r.total,
     maxMarks,
@@ -212,7 +300,8 @@ function computeNextId(list) {
 
 function fullDetail(r) {
   const norm = normalizeRecordShape(r);
-  return `${norm.id} | ${norm.name} | Total: ${norm.total}/${norm.maxMarks} | Percentage: ${norm.percentage.toFixed(2)} | Result: ${norm.result}`;
+  const subText = norm.subjects.map((s) => `${s.subject}: ${s.mark}`).join(", ");
+  return `${norm.id} | ${norm.name} | [${subText}] | Total: ${norm.total}/${norm.maxMarks} | Percentage: ${norm.percentage.toFixed(2)} | Result: ${norm.result}`;
 }
 
 function sortDetail(r) {
@@ -246,38 +335,50 @@ function bubbleSortLocal(list) {
   }
 }
 
-function parseMarksClient(rawArr) {
-  const entries = Array.isArray(rawArr) ? rawArr.map((v) => String(v ?? "").trim()) : [];
-  while (entries.length > 0 && entries[entries.length - 1] === "") {
-    entries.pop();
+function parseSubjectsClient(rawRows) {
+  const rows = Array.isArray(rawRows)
+    ? rawRows.map((x) => ({
+        subject: String(x?.subject ?? "").replace(/[,|:]/g, " ").replace(/\s+/g, " ").trim(),
+        markStr: String(x?.mark ?? "").trim(),
+      }))
+    : [];
+
+  while (rows.length > 0 && rows[rows.length - 1].subject === "" && rows[rows.length - 1].markStr === "") {
+    rows.pop();
   }
-  if (entries.length === 0) {
-    return { ok: false, marks: [], error: "Invalid marks. Please enter marks for at least 1 subject." };
+  if (rows.length === 0) {
+    return { ok: false, subjects: [], error: "Please enter at least 1 subject name and its marks (0 - 100)." };
   }
-  const tokens = [];
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i] === "") {
-      return {
-        ok: false,
-        marks: [],
-        error: `Please enter marks for Subject ${i + 1} or clear empty gaps between subjects.`,
-      };
+
+  const subjects = [];
+  const seen = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].subject === "" && rows[i].markStr === "") continue;
+    if (rows[i].subject === "") {
+      return { ok: false, subjects: [], error: `Please enter the subject name for row #${i + 1}.` };
     }
-    const split = entries[i].split(/[,\s]+/).filter(Boolean);
-    for (let k = 0; k < split.length; k++) tokens.push(split[k]);
-  }
-  const marks = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const n = Number(tokens[i]);
-    if (!Number.isInteger(n)) {
-      return { ok: false, marks: [], error: "Invalid marks. Each mark must be an integer between 0 and 100." };
+    if (rows[i].markStr === "") {
+      return { ok: false, subjects: [], error: `Please enter marks (0 - 100) for "${rows[i].subject}".` };
     }
-    if (n < 0 || n > 100) {
-      return { ok: false, marks: [], error: "Invalid marks. Each mark must be between 0 and 100." };
+    const key = rows[i].subject.toLowerCase();
+    if (seen.includes(key)) {
+      return { ok: false, subjects: [], error: `Duplicate subject "${rows[i].subject}".` };
     }
-    marks.push(n);
+    seen.push(key);
+    const num = Number(rows[i].markStr);
+    if (!Number.isInteger(num)) {
+      return { ok: false, subjects: [], error: `Invalid marks for "${rows[i].subject}". Must be an integer 0 - 100.` };
+    }
+    if (num < 0 || num > 100) {
+      return { ok: false, subjects: [], error: "Invalid marks. Each mark must be between 0 and 100." };
+    }
+    subjects.push({ subject: rows[i].subject, mark: num });
   }
-  return { ok: true, marks, error: "" };
+
+  if (!subjects.length) {
+    return { ok: false, subjects: [], error: "Please enter at least 1 subject name and its marks (0 - 100)." };
+  }
+  return { ok: true, subjects, error: "" };
 }
 
 function loadLocalFallback() {
@@ -295,7 +396,7 @@ function saveLocalFallback(list) {
   } catch {}
 }
 
-// ---------- API Client with Seamless Fallback ----------
+// ---------- API Client ----------
 async function callBackend(method, payload) {
   try {
     const opts = { method, headers: {} };
@@ -305,67 +406,77 @@ async function callBackend(method, payload) {
     }
     const res = await fetch("/api/results", opts);
     const data = await res.json();
-    backendOnline = true;
+    if (data.firebaseDatabaseUrl) {
+      ensureFirebaseRealtimeSubscription(data.firebaseDatabaseUrl);
+    } else if (!realtimeConnected) {
+      setDbBadge("Cloud Storage Ready", "cloud");
+    }
     if (Array.isArray(data.records)) {
       data.records = data.records.map(normalizeRecordShape);
       saveLocalFallback(data.records);
     }
     return data;
   } catch {
-    backendOnline = false;
+    setDbBadge("Offline Local Mode", "offline");
     return runLocalFallbackAction(method, payload);
   }
 }
 
 function runLocalFallbackAction(method, payload) {
   const list = loadLocalFallback();
-  if (method === "GET") {
-    return buildClientPayload(list, true, "Ready.", -1);
-  }
+  if (method === "GET") return buildClientPayload(list, true, "Ready.", -1);
+
   const action = String(payload?.action || "").toLowerCase();
   if (action === "add") {
     const rawErp = String(payload.erpId || "").trim();
     let id = null;
     if (rawErp && rawErp.toUpperCase() !== "ERP") {
       id = parseErpInput(rawErp);
-      if (!id) {
-        return buildClientPayload(list, false, "Invalid ERP ID. Please enter a valid ERP number.", -1);
-      }
+      if (!id) return buildClientPayload(list, false, "Invalid ERP ID. Please enter a valid ERP number.", -1);
     } else {
       const autoId = computeNextId(list);
       if (autoId === "ERP") {
-        return buildClientPayload(
-          list,
-          false,
-          "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
-          -1
-        );
+        return buildClientPayload(list, false, "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.", -1);
       }
       id = autoId;
     }
-
     if (linearSearchLocal(list, id).record !== null) {
       return buildClientPayload(list, false, `Duplicate ERP ID (${id}). A record with this ID already exists.`, -1);
     }
-
-    const name = String(payload.name || "").replace(/[,|]/g, " ").replace(/\s+/g, " ").trim();
+    const name = String(payload.name || "").replace(/[,|:]/g, " ").replace(/\s+/g, " ").trim();
     if (!name) return buildClientPayload(list, false, "Invalid name. Name cannot be empty.", -1);
 
-    const parsedMarks = parseMarksClient(payload.marks);
-    if (!parsedMarks.ok) {
-      return buildClientPayload(list, false, parsedMarks.error, -1);
-    }
+    const parsed = parseSubjectsClient(payload.subjects);
+    if (!parsed.ok) return buildClientPayload(list, false, parsed.error, -1);
 
     let total = 0;
-    for (let i = 0; i < parsedMarks.marks.length; i++) total += parsedMarks.marks[i];
-    const maxMarks = parsedMarks.marks.length * 100;
+    const marks = [];
+    for (let i = 0; i < parsed.subjects.length; i++) {
+      marks.push(parsed.subjects[i].mark);
+      total += parsed.subjects[i].mark;
+    }
+    const maxMarks = parsed.subjects.length * 100;
     const rawPct = (total * 100.0) / maxMarks;
-    const percentage = Number(rawPct.toFixed(2));
-    const result = rawPct >= 40.0 ? "Pass" : "Fail";
-    const rec = { id, name, marks: parsedMarks.marks, total, maxMarks, percentage, result };
+    const rec = {
+      id,
+      name,
+      subjects: parsed.subjects,
+      marks,
+      total,
+      maxMarks,
+      percentage: Number(rawPct.toFixed(2)),
+      result: rawPct >= 40.0 ? "Pass" : "Fail",
+    };
     list.push(rec);
     saveLocalFallback(list);
     return buildClientPayload(list, true, `Result added. ID: ${fullDetail(rec)}`, list.length - 1);
+  }
+  if (action === "remove") {
+    const { record, index } = linearSearchLocal(list, payload.id);
+    if (!record || index < 0) return buildClientPayload(list, false, `Result not found for ID: ${payload.id}`, -1);
+    list.splice(index, 1);
+    saveLocalFallback(list);
+    return buildClientPayload(list, true, `Removed student record: ${record.id} | ${record.name}`, -1);
   }
   if (action === "search") {
     const q = String(payload.id || "").trim();
@@ -450,42 +561,67 @@ function syncErpFormField() {
   }
 }
 
-function getMaxSubjectsCount(records) {
-  let maxSub = 0;
+/**
+ * Collects unique subject column names across all saved records (preserving order, case-insensitive match).
+ */
+function collectUniqueSubjectColumns(records) {
+  const cols = [];
+  const lowerKeys = [];
   for (let i = 0; i < records.length; i++) {
-    const len = Array.isArray(records[i].marks) ? records[i].marks.length : 0;
-    if (len > maxSub) maxSub = len;
+    const subs = records[i].subjects || [];
+    for (let j = 0; j < subs.length; j++) {
+      const name = String(subs[j].subject || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!lowerKeys.includes(key)) {
+        lowerKeys.push(key);
+        cols.push(name);
+      }
+    }
   }
-  return maxSub;
+  return cols;
 }
 
-function renderDynamicTableHeader(maxSubCount) {
-  if (maxSubCount <= 0) {
+function findSubjectMarkForRecord(record, colName) {
+  const target = colName.toLowerCase();
+  const subs = record.subjects || [];
+  for (let i = 0; i < subs.length; i++) {
+    if (String(subs[i].subject || "").trim().toLowerCase() === target) {
+      return subs[i].mark;
+    }
+  }
+  return null;
+}
+
+function renderDynamicTableHeader(subjectColumns) {
+  if (subjectColumns.length === 0) {
     resultsTableHeadRow.innerHTML = `
-      <th class="center" style="width:48px;">#</th>
-      <th class="center" style="width:115px;">ERP ID</th>
+      <th class="center" style="width:46px;">#</th>
+      <th class="center" style="width:110px;">ERP ID</th>
       <th>Student Name</th>
       <th class="center">Subjects</th>
-      <th class="center" style="width:105px;">Total</th>
-      <th class="center" style="width:108px;">Percentage</th>
-      <th class="center" style="width:94px;">Result</th>
+      <th class="center" style="width:100px;">Total</th>
+      <th class="center" style="width:105px;">Percentage</th>
+      <th class="center" style="width:88px;">Result</th>
+      <th class="center" style="width:82px;">Action</th>
     `;
     return;
   }
 
   let subHeaders = "";
-  for (let s = 1; s <= maxSubCount; s++) {
-    subHeaders += `<th class="center" style="min-width:68px;">Sub ${s}</th>`;
+  for (let s = 0; s < subjectColumns.length; s++) {
+    subHeaders += `<th class="center" style="min-width:84px;">${escapeHtml(subjectColumns[s])}</th>`;
   }
 
   resultsTableHeadRow.innerHTML = `
-    <th class="center" style="width:48px;">#</th>
-    <th class="center" style="width:115px;">ERP ID</th>
+    <th class="center" style="width:46px;">#</th>
+    <th class="center" style="width:110px;">ERP ID</th>
     <th style="min-width:140px;">Student Name</th>
     ${subHeaders}
-    <th class="center" style="min-width:98px;">Total</th>
-    <th class="center" style="min-width:98px;">Percentage</th>
-    <th class="center" style="width:90px;">Result</th>
+    <th class="center" style="min-width:96px;">Total</th>
+    <th class="center" style="min-width:96px;">Percentage</th>
+    <th class="center" style="width:88px;">Result</th>
+    <th class="center" style="width:82px;">Action</th>
   `;
 }
 
@@ -506,13 +642,13 @@ function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput
 
   tableMetaLabel.textContent = metaLabel || `Showing ${appRecords.length} record(s)`;
 
-  const maxSubCount = getMaxSubjectsCount(appRecords);
-  renderDynamicTableHeader(maxSubCount);
+  const subjectColumns = collectUniqueSubjectColumns(appRecords);
+  renderDynamicTableHeader(subjectColumns);
 
   if (appRecords.length === 0) {
     resultsTableBody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="7">No student results saved yet. Enter an ERP ID, student name, and subject marks on the left to begin.</td>
+        <td colspan="8">No student results saved yet. Enter an ERP ID, student name, and subject names + marks on the left to begin.</td>
       </tr>`;
     return;
   }
@@ -528,9 +664,9 @@ function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput
     const pillClass = r.result === "Pass" ? "pass" : "fail";
 
     let markCellsHtml = "";
-    for (let s = 0; s < maxSubCount; s++) {
-      const val = s < r.marks.length ? r.marks[s] : "—";
-      markCellsHtml += `<td class="center">${val}</td>`;
+    for (let s = 0; s < subjectColumns.length; s++) {
+      const m = findSubjectMarkForRecord(r, subjectColumns[s]);
+      markCellsHtml += `<td class="center">${m !== null ? m : "—"}</td>`;
     }
 
     tr.innerHTML = `
@@ -541,12 +677,29 @@ function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput
       <td class="center"><strong>${r.total}</strong>/${r.maxMarks}</td>
       <td class="center">${pctText}</td>
       <td class="center"><span class="result-pill ${pillClass}">${r.result}</span></td>
+      <td class="center"><button type="button" class="btn-row-remove" data-remove-id="${escapeHtml(r.id)}">Remove</button></td>
     `;
+
+    tr.querySelector(".btn-row-remove").addEventListener("click", () => handleRemoveRecord(r.id));
     resultsTableBody.appendChild(tr);
 
     if (i === highlightIndex) {
       setTimeout(() => tr.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
     }
+  }
+}
+
+async function handleRemoveRecord(erpId) {
+  const data = await callBackend("POST", { action: "remove", id: erpId });
+  appendConsole(`> Remove Student (${erpId})`);
+  appendConsole(data.message);
+  if (data.success) {
+    renderState(data, { syncErpInput: true });
+    setBanner(data.message, "ok");
+    showToast(`Removed ${erpId}`, "ok");
+  } else {
+    setBanner(data.message, "err");
+    showToast(data.message, "err");
   }
 }
 
@@ -571,7 +724,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
     action: "add",
     erpId: erpIdInput.value,
     name: studentNameInput.value,
-    marks: collectRawMarkValues(),
+    subjects: collectSubjectEntries(),
   };
   const data = await callBackend("POST", payload);
   appendConsole("> Menu Option 1 (Add Result)");
@@ -582,7 +735,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
     setBanner(data.message, "ok");
     showToast(`Added ${data.records[data.records.length - 1]?.id}`, "ok");
     studentNameInput.value = "";
-    resetMarksGrid();
+    resetSubjectRows();
     studentNameInput.focus();
   } else {
     setBanner(data.message, "err");
@@ -595,7 +748,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
 
 document.getElementById("clearFormBtn").addEventListener("click", () => {
   studentNameInput.value = "";
-  resetMarksGrid();
+  resetSubjectRows();
   syncErpFormField();
   formErpBadge.textContent = nextErpId;
   if (appRecords.length === 0) {
@@ -668,7 +821,10 @@ document.getElementById("downloadTxtBtn").addEventListener("click", () => {
     return;
   }
   const content = appRecords
-    .map((r) => `${r.id},${r.name},${r.marks.join(",")},${r.total},${Number(r.percentage).toFixed(2)},${r.result}`)
+    .map((r) => {
+      const subPairs = r.subjects.map((s) => `${s.subject}:${s.mark}`).join(",");
+      return `${r.id},${r.name},${subPairs},${r.total},${Number(r.percentage).toFixed(2)},${r.result}`;
+    })
     .join("\n") + "\n";
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -712,13 +868,14 @@ themeToggleBtn.addEventListener("click", () => {
 });
 
 // Initial Bootstrap
-resetMarksGrid();
+resetSubjectRows();
+ensureFirebaseRealtimeSubscription();
 (async function init() {
   const data = await callBackend("GET");
   renderState(data, { syncErpInput: true });
   if (data.records.length === 0) {
-    setBanner("Ready. Enter ERP ID, student name, and marks in as many subjects as needed.", "info");
-    appendConsole("System ready. 0 existing records. Enter the first ERP ID to start auto-detection.");
+    setBanner("Ready. Enter ERP ID, student name, and each subject name + marks (0 - 100).", "info");
+    appendConsole("System ready. 0 existing records. Enter the first ERP ID and subject names + marks to begin.");
   } else {
     setBanner(`Loaded ${data.records.length} record(s). Auto-detected next ID: ${data.nextId}`, "ok");
     appendConsole(`Loaded ${data.records.length} record(s):`);

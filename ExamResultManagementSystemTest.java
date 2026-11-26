@@ -37,6 +37,7 @@ public class ExamResultManagementSystemTest {
         testCustomSearchingLogicDirectly();
         testNameSanitizationAndInteriorGapValidation();
         testGuiControllerOperationsAndFormats();
+        testNamedSubjectsAndRemoveStudent();
         testMultipleRecordsScale();
         testClearAllRecordsResetsToPlainErp();
         testSwingGuiDynamicSubjectsAndCleanLabels();
@@ -337,6 +338,38 @@ public class ExamResultManagementSystemTest {
                 res2.isSuccess() && res2.getMessage().equals(
                         "Result added. ID: ERP 3002 | Mitali Roy | Total: 68/200 | Percentage: 34.00 | Result: Fail"),
                 "Unexpected message: " + res2.getMessage());
+    }
+
+    private static void testNamedSubjectsAndRemoveStudent() {
+        ArrayList<StudentResult> list = new ArrayList<>();
+        ExamResultManagementSystem.updateNextIdNumber(list);
+
+        OperationResult added = ExamResultManagementSystem.addResultWithNamedSubjects(
+                list,
+                "410",
+                "Kiran Patel",
+                new String[]{"DSA", "DBMS", "Operating Systems", ""},
+                new String[]{"92", "88", "90", ""});
+        assertTrue("Named Subjects - Custom Subject Names & Marks Added (/300)",
+                added.isSuccess()
+                        && added.getStudentResult().findMarkForSubject("DSA") == 92
+                        && added.getStudentResult().findMarkForSubject("dbms") == 88
+                        && added.getStudentResult().getTotal() == 270,
+                "Named subjects add failed: " + added.getMessage());
+
+        StudentResult reloaded = ExamResultManagementSystem.parseLine(added.getStudentResult().toFileString());
+        assertTrue("Named Subjects - Custom Subject Names Survive File Round Trip",
+                reloaded != null
+                        && reloaded.findMarkForSubject("Operating Systems") != null
+                        && reloaded.findMarkForSubject("Operating Systems") == 90,
+                "Named subjects lost on file round trip");
+
+        OperationResult removed = ExamResultManagementSystem.removeResultById(list, "ERP 410");
+        assertTrue("Remove Student - Deletes Record & Resets Next ERP to 'ERP' When Empty",
+                removed.isSuccess()
+                        && list.isEmpty()
+                        && "ERP".equals(ExamResultManagementSystem.formatNextId()),
+                "Remove student failed: " + removed.getMessage());
     }
 
     private static void testMultipleRecordsScale() {
