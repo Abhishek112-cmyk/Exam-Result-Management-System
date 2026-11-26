@@ -4,10 +4,9 @@ import { getDeployStore, getStore } from "@netlify/blobs";
 interface StudentRecord {
   id: string;
   name: string;
-  mark1: number;
-  mark2: number;
-  mark3: number;
+  marks: number[];
   total: number;
+  maxMarks: number;
   percentage: number;
   result: "Pass" | "Fail";
 }
@@ -37,15 +36,27 @@ function normalizeIdKey(raw: string): string {
   return cleaned;
 }
 
-function createStudentRecord(id: string, name: string, mark1: number, mark2: number, mark3: number): StudentRecord {
-  const total = mark1 + mark2 + mark3;
-  const rawPct = (total * 100.0) / 300.0;
+function createStudentRecord(id: string, name: string, marks: number[]): StudentRecord {
+  let total = 0;
+  for (let i = 0; i < marks.length; i++) {
+    total += marks[i];
+  }
+  const maxMarks = marks.length * 100;
+  const rawPct = maxMarks > 0 ? (total * 100.0) / maxMarks : 0;
   const result: "Pass" | "Fail" = rawPct >= 40.0 ? "Pass" : "Fail";
-  return { id, name, mark1, mark2, mark3, total, percentage: Number(rawPct.toFixed(2)), result };
+  return {
+    id,
+    name,
+    marks,
+    total,
+    maxMarks,
+    percentage: Number(rawPct.toFixed(2)),
+    result,
+  };
 }
 
 function toFullDetailString(r: StudentRecord): string {
-  return `${r.id} | ${r.name} | Total: ${r.total}/300 | Percentage: ${r.percentage.toFixed(2)} | Result: ${r.result}`;
+  return `${r.id} | ${r.name} | Total: ${r.total}/${r.maxMarks} | Percentage: ${r.percentage.toFixed(2)} | Result: ${r.result}`;
 }
 
 function toSortString(r: StudentRecord): string {
@@ -53,7 +64,7 @@ function toSortString(r: StudentRecord): string {
 }
 
 function toFileString(r: StudentRecord): string {
-  return `${r.id},${r.name},${r.mark1},${r.mark2},${r.mark3},${r.total},${r.percentage.toFixed(2)},${r.result}`;
+  return `${r.id},${r.name},${r.marks.join(",")},${r.total},${r.percentage.toFixed(2)},${r.result}`;
 }
 
 function parseResultsTxt(txt: string): StudentRecord[] {
@@ -64,15 +75,30 @@ function parseResultsTxt(txt: string): StudentRecord[] {
     const line = lines[i].trim();
     if (!line || line.startsWith("#")) continue;
     const parts = line.split(",").map((s) => s.trim());
-    if (parts.length >= 5) {
-      const parsedId = parseErpInput(parts[0]) ?? parts[0];
-      const name = parts[1];
-      const m1 = parseInt(parts[2], 10);
-      const m2 = parseInt(parts[3], 10);
-      const m3 = parseInt(parts[4], 10);
-      if (!Number.isNaN(m1) && !Number.isNaN(m2) && !Number.isNaN(m3)) {
-        list.push(createStudentRecord(parsedId, name, m1, m2, m3));
+    if (parts.length < 3) continue;
+
+    const parsedId = parseErpInput(parts[0]) ?? parts[0];
+    const name = parts[1];
+    const lastToken = parts[parts.length - 1].toLowerCase();
+
+    let markEndExclusive = parts.length;
+    if ((lastToken === "pass" || lastToken === "fail") && parts.length >= 6) {
+      markEndExclusive = parts.length - 3;
+    }
+
+    const marks: number[] = [];
+    let valid = true;
+    for (let j = 2; j < markEndExclusive; j++) {
+      const m = parseInt(parts[j], 10);
+      if (Number.isNaN(m)) {
+        valid = false;
+        break;
       }
+      marks.push(m);
+    }
+
+    if (valid && marks.length >= 1) {
+      list.push(createStudentRecord(parsedId, name, marks));
     }
   }
   return list;
@@ -86,10 +112,6 @@ function serializeResultsTxt(list: StudentRecord[]): string {
   return lines.join("\n");
 }
 
-/**
- * Auto-detects the next sequential ERP ID from existing records.
- * Returns "ERP" (with no hardcoded number) when 0 records exist.
- */
 function computeNextId(list: StudentRecord[]): string {
   if (list.length === 0) return "ERP";
   let maxId: number | null = null;
@@ -168,6 +190,60 @@ async function saveRecords(context: Context, list: StudentRecord[]): Promise<voi
   } catch {
     // Fallback already stored in memoryFallbackTxt for local unlinked dev
   }
+}
+
+function parseMarksPayload(body: Record<string, unknown>): { ok: boolean; marks: number[]; error: string } {
+  let rawEntries: string[] = [];
+
+  if (Array.isArray(body.marks)) {
+    rawEntries = body.marks.map((v) => String(v ?? "").trim());
+  } else if (typeof body.marks === "string") {
+    rawEntries = body.marks
+      .trim()
+      .split(/[,\s]+/)
+      .filter((s) => s.length > 0);
+  } else if (body.m1 !== undefined || body.m2 !== undefined || body.m3 !== undefined) {
+    rawEntries = [String(body.m1 ?? "").trim(), String(body.m2 ?? "").trim(), String(body.m3 ?? "").trim()];
+  }
+
+  // Trim trailing empty slots (from the auto-growing blank input at the end)
+  while (rawEntries.length > 0 && rawEntries[rawEntries.length - 1] === "") {
+    rawEntries.pop();
+  }
+
+  if (rawEntries.length === 0) {
+    return { ok: false, marks: [], error: "Invalid marks. Please enter marks for at least 1 subject." };
+  }
+
+  // Expand any space/comma-separated entries and reject empty gaps between filled subjects
+  const tokens: string[] = [];
+  for (let i = 0; i < rawEntries.length; i++) {
+    if (rawEntries[i] === "") {
+      return {
+        ok: false,
+        marks: [],
+        error: `Please enter marks for Subject ${i + 1} or clear empty gaps between subjects.`,
+      };
+    }
+    const split = rawEntries[i].split(/[,\s]+/).filter((s) => s.length > 0);
+    for (let k = 0; k < split.length; k++) {
+      tokens.push(split[k]);
+    }
+  }
+
+  const parsed: number[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const num = Number(tokens[i]);
+    if (!Number.isInteger(num)) {
+      return { ok: false, marks: [], error: "Invalid marks. Each mark must be an integer between 0 and 100." };
+    }
+    if (num < 0 || num > 100) {
+      return { ok: false, marks: [], error: "Invalid marks. Each mark must be between 0 and 100." };
+    }
+    parsed.push(num);
+  }
+
+  return { ok: true, marks: parsed, error: "" };
 }
 
 function buildPayload(
@@ -260,49 +336,12 @@ export default async (req: Request, context: Context) => {
         );
       }
 
-      const p1 = String(body.m1 ?? "").trim();
-      const p2 = String(body.m2 ?? "").trim();
-      const p3 = String(body.m3 ?? "").trim();
-
-      let m1: number, m2: number, m3: number;
-      if (p1 && !p2 && !p3 && /[,\s]+/.test(p1)) {
-        const tokens = p1.split(/[,\s]+/);
-        if (tokens.length !== 3) {
-          return Response.json(
-            buildPayload(list, false, "Invalid marks. Please enter exactly 3 marks.", null, -1),
-            { status: 400 }
-          );
-        }
-        m1 = Number(tokens[0]);
-        m2 = Number(tokens[1]);
-        m3 = Number(tokens[2]);
-      } else {
-        if (!p1 || !p2 || !p3) {
-          return Response.json(
-            buildPayload(list, false, "Invalid marks. Please enter marks for all 3 subjects.", null, -1),
-            { status: 400 }
-          );
-        }
-        m1 = Number(p1);
-        m2 = Number(p2);
-        m3 = Number(p3);
+      const parsedMarks = parseMarksPayload(body);
+      if (!parsedMarks.ok) {
+        return Response.json(buildPayload(list, false, parsedMarks.error, null, -1), { status: 400 });
       }
 
-      if (!Number.isInteger(m1) || !Number.isInteger(m2) || !Number.isInteger(m3)) {
-        return Response.json(
-          buildPayload(list, false, "Invalid marks. Each mark must be an integer between 0 and 100.", null, -1),
-          { status: 400 }
-        );
-      }
-
-      if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
-        return Response.json(
-          buildPayload(list, false, "Invalid marks. Each mark must be between 0 and 100.", null, -1),
-          { status: 400 }
-        );
-      }
-
-      const created = createStudentRecord(resolvedId, rawName, m1, m2, m3);
+      const created = createStudentRecord(resolvedId, rawName, parsedMarks.marks);
       list.push(created);
       await saveRecords(context, list);
 

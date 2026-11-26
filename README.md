@@ -17,8 +17,8 @@ A full-stack and desktop Exam Result Management System built around custom Data 
 
 ## 🎯 Problem Statement
 Manage student exam results with:
-- **Add student results** with marks in 3 subjects (each `0–100`).
-- **Display all results** stored in memory.
+- **Dynamic Unlimited Subjects**: Enter marks (`0–100` each) in **as many subjects as needed** — the subject input boxes and table columns dynamically grow and shrink automatically based on the subjects entered.
+- **Display all results** stored in memory (`Total: sum / (N * 100)`).
 - **Search by ERP ID** using manual Linear Search (flexible case/space/number matching).
 - **Sort results by percentage (high to low)** using manual in-place Adaptive Bubble Sort.
 - **Persistence**: Load existing records from `results.txt` at startup and save automatically (and via `@netlify/blobs` when deployed on Netlify).

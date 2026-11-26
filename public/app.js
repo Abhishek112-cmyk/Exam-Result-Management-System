@@ -1,9 +1,9 @@
 // Exam Result Management System — Smooth Frontend Controller
 // Connects to /api/results (Netlify Serverless Function or Java HTTP Backend),
 // with seamless localStorage fallback when opened offline.
-// Auto-detects next ERP ID from saved records (displays just "ERP" when 0 records exist).
+// Supports dynamic auto-growing & auto-shrinking subjects and auto-detected ERP IDs.
 
-const LOCAL_STORAGE_KEY = "exam_results_erp_v2";
+const LOCAL_STORAGE_KEY = "exam_results_erp_v3";
 
 let appRecords = [];
 let nextErpId = "ERP";
@@ -16,20 +16,169 @@ const statPass = document.getElementById("statPass");
 const statFail = document.getElementById("statFail");
 const formErpBadge = document.getElementById("formErpBadge");
 const erpHintLabel = document.getElementById("erpHintLabel");
+const subjectsCountPill = document.getElementById("subjectsCountPill");
+const marksGrid = document.getElementById("marksGrid");
 const statusBanner = document.getElementById("statusBanner");
 const statusBannerText = document.getElementById("statusBannerText");
 const tableMetaLabel = document.getElementById("tableMetaLabel");
+const resultsTableHeadRow = document.getElementById("resultsTableHeadRow");
 const resultsTableBody = document.getElementById("resultsTableBody");
 const consoleBox = document.getElementById("consoleBox");
 
 const erpIdInput = document.getElementById("erpIdInput");
 const studentNameInput = document.getElementById("studentName");
-const mark1Input = document.getElementById("mark1");
-const mark2Input = document.getElementById("mark2");
-const mark3Input = document.getElementById("mark3");
 const searchIdInput = document.getElementById("searchIdInput");
 
-// ---------- Offline Fallback DSA Engine (mirrors backend identically) ----------
+// ---------- Dynamic Auto-Grow / Auto-Shrink Subject Inputs ----------
+function createMarkCell(subjectIndex, initialValue = "", isOptionalSlot = false) {
+  const cell = document.createElement("div");
+  cell.className = isOptionalSlot ? "mark-cell optional-slot" : "mark-cell";
+
+  const label = document.createElement("span");
+  label.textContent = `Subject ${subjectIndex}`;
+
+  const input = document.createElement("input");
+  input.className = "text-input mark-input";
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.placeholder = isOptionalSlot ? "+ add" : "0-100";
+  input.value = initialValue;
+
+  input.addEventListener("input", () => handleMarkInputChange(input));
+  input.addEventListener("blur", () => pruneTrailingBlankMarkCells(false));
+
+  cell.appendChild(label);
+  cell.appendChild(input);
+  return cell;
+}
+
+function getMarkInputs() {
+  return Array.from(marksGrid.querySelectorAll(".mark-input"));
+}
+
+function refreshMarkLabelsAndCount() {
+  const cells = Array.from(marksGrid.querySelectorAll(".mark-cell"));
+  let filledCount = 0;
+
+  for (let i = 0; i < cells.length; i++) {
+    const span = cells[i].querySelector("span");
+    const inp = cells[i].querySelector(".mark-input");
+    if (span) span.textContent = `Subject ${i + 1}`;
+    const hasVal = inp && inp.value.trim() !== "";
+    if (hasVal) filledCount++;
+
+    const isTrailingEmpty = i > 0 && i === cells.length - 1 && !hasVal;
+    cells[i].classList.toggle("optional-slot", isTrailingEmpty);
+    if (inp) {
+      inp.placeholder = isTrailingEmpty ? "+ add" : "0-100";
+    }
+  }
+
+  if (filledCount === 0) {
+    subjectsCountPill.textContent = "0 subjects";
+  } else if (filledCount === 1) {
+    subjectsCountPill.textContent = "1 subject (/100)";
+  } else {
+    subjectsCountPill.textContent = `${filledCount} subjects (/${filledCount * 100})`;
+  }
+}
+
+function handleMarkInputChange(changedInput) {
+  const rawVal = changedInput.value;
+
+  // Support pasting space/comma-separated marks like "80 70 90 85 95" into any box
+  if (/[,\s]+/.test(rawVal.trim())) {
+    const parts = rawVal.trim().split(/[,\s]+/).filter(Boolean);
+    if (parts.length > 1) {
+      const inputs = getMarkInputs();
+      const startIdx = inputs.indexOf(changedInput);
+      if (startIdx !== -1) {
+        for (let k = 0; k < parts.length; k++) {
+          const targetIdx = startIdx + k;
+          const currentInputs = getMarkInputs();
+          if (targetIdx < currentInputs.length) {
+            currentInputs[targetIdx].value = parts[k];
+          } else {
+            marksGrid.appendChild(createMarkCell(currentInputs.length + 1, parts[k], false));
+          }
+        }
+        const afterInputs = getMarkInputs();
+        if (afterInputs[afterInputs.length - 1].value.trim() !== "") {
+          marksGrid.appendChild(createMarkCell(afterInputs.length + 1, "", true));
+        }
+        pruneTrailingBlankMarkCells(true);
+        refreshMarkLabelsAndCount();
+        const updatedInputs = getMarkInputs();
+        const focusIdx = Math.min(startIdx + parts.length - 1, updatedInputs.length - 1);
+        updatedInputs[focusIdx].focus();
+        return;
+      }
+    }
+  }
+
+  const inputs = getMarkInputs();
+  const lastInput = inputs[inputs.length - 1];
+
+  // Auto-Grow: as soon as the last box has a value, append the next Subject slot
+  if (lastInput && lastInput.value.trim() !== "") {
+    marksGrid.appendChild(createMarkCell(inputs.length + 1, "", true));
+  } else {
+    // Auto-Shrink: collapse extra empty trailing boxes automatically
+    pruneTrailingBlankMarkCells(true);
+  }
+
+  refreshMarkLabelsAndCount();
+}
+
+function pruneTrailingBlankMarkCells(protectFocused) {
+  let cells = Array.from(marksGrid.querySelectorAll(".mark-cell"));
+  while (cells.length > 1) {
+    const lastCell = cells[cells.length - 1];
+    const prevCell = cells[cells.length - 2];
+    const lastInput = lastCell.querySelector(".mark-input");
+    const prevInput = prevCell.querySelector(".mark-input");
+
+    if (
+      lastInput.value.trim() === "" &&
+      prevInput.value.trim() === "" &&
+      (!protectFocused || document.activeElement !== lastInput)
+    ) {
+      lastCell.remove();
+      cells.pop();
+    } else {
+      break;
+    }
+  }
+  refreshMarkLabelsAndCount();
+}
+
+function resetMarksGrid() {
+  marksGrid.innerHTML = "";
+  marksGrid.appendChild(createMarkCell(1, "", false));
+  refreshMarkLabelsAndCount();
+}
+
+function collectRawMarkValues() {
+  return getMarkInputs().map((inp) => inp.value.trim());
+}
+
+// ---------- Record Normalization & Offline Fallback Engine ----------
+function normalizeRecordShape(r) {
+  const marks = Array.isArray(r.marks)
+    ? r.marks.map(Number)
+    : [r.mark1, r.mark2, r.mark3].filter((v) => v !== undefined && v !== null).map(Number);
+  const maxMarks = r.maxMarks || marks.length * 100;
+  return {
+    id: r.id,
+    name: r.name,
+    marks,
+    total: r.total,
+    maxMarks,
+    percentage: Number(r.percentage),
+    result: r.result,
+  };
+}
+
 function parseErpInput(raw) {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return null;
@@ -62,7 +211,8 @@ function computeNextId(list) {
 }
 
 function fullDetail(r) {
-  return `${r.id} | ${r.name} | Total: ${r.total}/300 | Percentage: ${Number(r.percentage).toFixed(2)} | Result: ${r.result}`;
+  const norm = normalizeRecordShape(r);
+  return `${norm.id} | ${norm.name} | Total: ${norm.total}/${norm.maxMarks} | Percentage: ${norm.percentage.toFixed(2)} | Result: ${norm.result}`;
 }
 
 function sortDetail(r) {
@@ -96,10 +246,44 @@ function bubbleSortLocal(list) {
   }
 }
 
+function parseMarksClient(rawArr) {
+  const entries = Array.isArray(rawArr) ? rawArr.map((v) => String(v ?? "").trim()) : [];
+  while (entries.length > 0 && entries[entries.length - 1] === "") {
+    entries.pop();
+  }
+  if (entries.length === 0) {
+    return { ok: false, marks: [], error: "Invalid marks. Please enter marks for at least 1 subject." };
+  }
+  const tokens = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i] === "") {
+      return {
+        ok: false,
+        marks: [],
+        error: `Please enter marks for Subject ${i + 1} or clear empty gaps between subjects.`,
+      };
+    }
+    const split = entries[i].split(/[,\s]+/).filter(Boolean);
+    for (let k = 0; k < split.length; k++) tokens.push(split[k]);
+  }
+  const marks = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const n = Number(tokens[i]);
+    if (!Number.isInteger(n)) {
+      return { ok: false, marks: [], error: "Invalid marks. Each mark must be an integer between 0 and 100." };
+    }
+    if (n < 0 || n > 100) {
+      return { ok: false, marks: [], error: "Invalid marks. Each mark must be between 0 and 100." };
+    }
+    marks.push(n);
+  }
+  return { ok: true, marks, error: "" };
+}
+
 function loadLocalFallback() {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    return raw ? JSON.parse(raw).map(normalizeRecordShape) : [];
   } catch {
     return [];
   }
@@ -123,6 +307,7 @@ async function callBackend(method, payload) {
     const data = await res.json();
     backendOnline = true;
     if (Array.isArray(data.records)) {
+      data.records = data.records.map(normalizeRecordShape);
       saveLocalFallback(data.records);
     }
     return data;
@@ -165,28 +350,19 @@ function runLocalFallbackAction(method, payload) {
 
     const name = String(payload.name || "").replace(/[,|]/g, " ").replace(/\s+/g, " ").trim();
     if (!name) return buildClientPayload(list, false, "Invalid name. Name cannot be empty.", -1);
-    const p1 = String(payload.m1 || "").trim();
-    const p2 = String(payload.m2 || "").trim();
-    const p3 = String(payload.m3 || "").trim();
-    let m1, m2, m3;
-    if (p1 && !p2 && !p3 && /[,\s]+/.test(p1)) {
-      const t = p1.split(/[,\s]+/);
-      if (t.length !== 3) return buildClientPayload(list, false, "Invalid marks. Please enter exactly 3 marks.", -1);
-      [m1, m2, m3] = t.map(Number);
-    } else {
-      if (!p1 || !p2 || !p3) return buildClientPayload(list, false, "Invalid marks. Please enter marks for all 3 subjects.", -1);
-      [m1, m2, m3] = [Number(p1), Number(p2), Number(p3)];
+
+    const parsedMarks = parseMarksClient(payload.marks);
+    if (!parsedMarks.ok) {
+      return buildClientPayload(list, false, parsedMarks.error, -1);
     }
-    if (!Number.isInteger(m1) || !Number.isInteger(m2) || !Number.isInteger(m3)) {
-      return buildClientPayload(list, false, "Invalid marks. Each mark must be an integer between 0 and 100.", -1);
-    }
-    if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
-      return buildClientPayload(list, false, "Invalid marks. Each mark must be between 0 and 100.", -1);
-    }
-    const total = m1 + m2 + m3;
-    const percentage = Number(((total * 100.0) / 300.0).toFixed(2));
-    const result = (total * 100.0) / 300.0 >= 40.0 ? "Pass" : "Fail";
-    const rec = { id, name, mark1: m1, mark2: m2, mark3: m3, total, percentage, result };
+
+    let total = 0;
+    for (let i = 0; i < parsedMarks.marks.length; i++) total += parsedMarks.marks[i];
+    const maxMarks = parsedMarks.marks.length * 100;
+    const rawPct = (total * 100.0) / maxMarks;
+    const percentage = Number(rawPct.toFixed(2));
+    const result = rawPct >= 40.0 ? "Pass" : "Fail";
+    const rec = { id, name, marks: parsedMarks.marks, total, maxMarks, percentage, result };
     list.push(rec);
     saveLocalFallback(list);
     return buildClientPayload(list, true, `Result added. ID: ${fullDetail(rec)}`, list.length - 1);
@@ -274,8 +450,47 @@ function syncErpFormField() {
   }
 }
 
+function getMaxSubjectsCount(records) {
+  let maxSub = 0;
+  for (let i = 0; i < records.length; i++) {
+    const len = Array.isArray(records[i].marks) ? records[i].marks.length : 0;
+    if (len > maxSub) maxSub = len;
+  }
+  return maxSub;
+}
+
+function renderDynamicTableHeader(maxSubCount) {
+  if (maxSubCount <= 0) {
+    resultsTableHeadRow.innerHTML = `
+      <th class="center" style="width:48px;">#</th>
+      <th class="center" style="width:115px;">ERP ID</th>
+      <th>Student Name</th>
+      <th class="center">Subjects</th>
+      <th class="center" style="width:105px;">Total</th>
+      <th class="center" style="width:108px;">Percentage</th>
+      <th class="center" style="width:94px;">Result</th>
+    `;
+    return;
+  }
+
+  let subHeaders = "";
+  for (let s = 1; s <= maxSubCount; s++) {
+    subHeaders += `<th class="center" style="min-width:68px;">Sub ${s}</th>`;
+  }
+
+  resultsTableHeadRow.innerHTML = `
+    <th class="center" style="width:48px;">#</th>
+    <th class="center" style="width:115px;">ERP ID</th>
+    <th style="min-width:140px;">Student Name</th>
+    ${subHeaders}
+    <th class="center" style="min-width:98px;">Total</th>
+    <th class="center" style="min-width:98px;">Percentage</th>
+    <th class="center" style="width:90px;">Result</th>
+  `;
+}
+
 function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput = true } = {}) {
-  appRecords = data.records || [];
+  appRecords = (data.records || []).map(normalizeRecordShape);
   nextErpId = data.nextId || computeNextId(appRecords);
 
   statNextErp.textContent = nextErpId;
@@ -291,10 +506,13 @@ function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput
 
   tableMetaLabel.textContent = metaLabel || `Showing ${appRecords.length} record(s)`;
 
+  const maxSubCount = getMaxSubjectsCount(appRecords);
+  renderDynamicTableHeader(maxSubCount);
+
   if (appRecords.length === 0) {
     resultsTableBody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="9">No student results saved yet. Enter an ERP ID, student name, and marks on the left to begin.</td>
+        <td colspan="7">No student results saved yet. Enter an ERP ID, student name, and subject marks on the left to begin.</td>
       </tr>`;
     return;
   }
@@ -309,14 +527,18 @@ function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput
     const pctText = Number(r.percentage).toFixed(2);
     const pillClass = r.result === "Pass" ? "pass" : "fail";
 
+    let markCellsHtml = "";
+    for (let s = 0; s < maxSubCount; s++) {
+      const val = s < r.marks.length ? r.marks[s] : "—";
+      markCellsHtml += `<td class="center">${val}</td>`;
+    }
+
     tr.innerHTML = `
       <td class="center">${i + 1}</td>
       <td class="center erp-cell">${escapeHtml(r.id)}</td>
       <td>${escapeHtml(r.name)}</td>
-      <td class="center">${r.mark1}</td>
-      <td class="center">${r.mark2}</td>
-      <td class="center">${r.mark3}</td>
-      <td class="center"><strong>${r.total}</strong>/300</td>
+      ${markCellsHtml}
+      <td class="center"><strong>${r.total}</strong>/${r.maxMarks}</td>
       <td class="center">${pctText}</td>
       <td class="center"><span class="result-pill ${pillClass}">${r.result}</span></td>
     `;
@@ -342,20 +564,6 @@ erpIdInput.addEventListener("input", () => {
   formErpBadge.textContent = parsed || nextErpId;
 });
 
-// Auto-split pasted "80 70 90" in Subject 1 into Subject 1, 2, 3 smoothly
-mark1Input.addEventListener("input", () => {
-  const val = mark1Input.value.trim();
-  if (/[,\s]+/.test(val) && !mark2Input.value.trim() && !mark3Input.value.trim()) {
-    const parts = val.split(/[,\s]+/);
-    if (parts.length === 3) {
-      mark1Input.value = parts[0];
-      mark2Input.value = parts[1];
-      mark3Input.value = parts[2];
-      mark3Input.focus();
-    }
-  }
-});
-
 // ---------- Event Listeners ----------
 document.getElementById("addResultForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -363,9 +571,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
     action: "add",
     erpId: erpIdInput.value,
     name: studentNameInput.value,
-    m1: mark1Input.value,
-    m2: mark2Input.value,
-    m3: mark3Input.value,
+    marks: collectRawMarkValues(),
   };
   const data = await callBackend("POST", payload);
   appendConsole("> Menu Option 1 (Add Result)");
@@ -376,9 +582,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
     setBanner(data.message, "ok");
     showToast(`Added ${data.records[data.records.length - 1]?.id}`, "ok");
     studentNameInput.value = "";
-    mark1Input.value = "";
-    mark2Input.value = "";
-    mark3Input.value = "";
+    resetMarksGrid();
     studentNameInput.focus();
   } else {
     setBanner(data.message, "err");
@@ -391,9 +595,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
 
 document.getElementById("clearFormBtn").addEventListener("click", () => {
   studentNameInput.value = "";
-  mark1Input.value = "";
-  mark2Input.value = "";
-  mark3Input.value = "";
+  resetMarksGrid();
   syncErpFormField();
   formErpBadge.textContent = nextErpId;
   if (appRecords.length === 0) {
@@ -466,7 +668,7 @@ document.getElementById("downloadTxtBtn").addEventListener("click", () => {
     return;
   }
   const content = appRecords
-    .map((r) => `${r.id},${r.name},${r.mark1},${r.mark2},${r.mark3},${r.total},${Number(r.percentage).toFixed(2)},${r.result}`)
+    .map((r) => `${r.id},${r.name},${r.marks.join(",")},${r.total},${Number(r.percentage).toFixed(2)},${r.result}`)
     .join("\n") + "\n";
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -510,11 +712,12 @@ themeToggleBtn.addEventListener("click", () => {
 });
 
 // Initial Bootstrap
+resetMarksGrid();
 (async function init() {
   const data = await callBackend("GET");
   renderState(data, { syncErpInput: true });
   if (data.records.length === 0) {
-    setBanner("Ready. Enter the first student's ERP ID to begin — subsequent ERP IDs auto-detect automatically.", "info");
+    setBanner("Ready. Enter ERP ID, student name, and marks in as many subjects as needed.", "info");
     appendConsole("System ready. 0 existing records. Enter the first ERP ID to start auto-detection.");
   } else {
     setBanner(`Loaded ${data.records.length} record(s). Auto-detected next ID: ${data.nextId}`, "ok");

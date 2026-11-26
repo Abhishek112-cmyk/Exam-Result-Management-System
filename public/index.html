@@ -16,7 +16,7 @@
         <h1>Exam Result Management System</h1>
         <span class="pill-tag">PS No. 48</span>
       </div>
-      <p class="brand-subtitle">3 Subjects (/100 each) &nbsp;•&nbsp; Pass &ge; 40.00% &nbsp;•&nbsp; Persistent Storage: <code>results.txt</code></p>
+      <p class="brand-subtitle">Subjects (/100 each) &nbsp;•&nbsp; Pass &ge; 40.00% &nbsp;•&nbsp; Persistent Storage: <code>results.txt</code></p>
     </div>
 
     <div class="header-right">
@@ -80,20 +80,13 @@
               required
             />
 
-            <label class="field-label" style="margin-top:12px;">Marks in 3 Subjects (0 – 100 each)</label>
-            <div class="marks-grid">
-              <div class="mark-cell">
-                <span>Subject 1</span>
-                <input class="text-input mark-input" id="mark1" type="text" inputmode="numeric" placeholder="0-100" />
-              </div>
-              <div class="mark-cell">
-                <span>Subject 2</span>
-                <input class="text-input mark-input" id="mark2" type="text" inputmode="numeric" placeholder="0-100" />
-              </div>
-              <div class="mark-cell">
-                <span>Subject 3</span>
-                <input class="text-input mark-input" id="mark3" type="text" inputmode="numeric" placeholder="0-100" />
-              </div>
+            <div class="marks-header-row">
+              <label class="field-label" style="margin-bottom:0;">Marks in subjects (0 - 100 each)</label>
+              <span class="subjects-count-pill" id="subjectsCountPill">0 subjects</span>
+            </div>
+
+            <div class="marks-grid" id="marksGrid">
+              <!-- Dynamically grows & shrinks automatically as marks are entered -->
             </div>
 
             <div class="btn-row">
@@ -148,21 +141,19 @@
           <div class="table-wrap">
             <table class="results-table">
               <thead>
-                <tr>
+                <tr id="resultsTableHeadRow">
                   <th class="center" style="width:48px;">#</th>
-                  <th class="center" style="width:120px;">ERP ID</th>
+                  <th class="center" style="width:115px;">ERP ID</th>
                   <th>Student Name</th>
-                  <th class="center" style="width:76px;">Sub 1</th>
-                  <th class="center" style="width:76px;">Sub 2</th>
-                  <th class="center" style="width:76px;">Sub 3</th>
-                  <th class="center" style="width:105px;">Total (/300)</th>
+                  <th class="center">Subjects</th>
+                  <th class="center" style="width:105px;">Total</th>
                   <th class="center" style="width:108px;">Percentage</th>
                   <th class="center" style="width:94px;">Result</th>
                 </tr>
               </thead>
               <tbody id="resultsTableBody">
                 <tr class="empty-row">
-                  <td colspan="9">No student results saved yet. Enter an ERP ID, student name, and marks on the left to begin.</td>
+                  <td colspan="7">No student results saved yet. Enter an ERP ID, student name, and subject marks on the left to begin.</td>
                 </tr>
               </tbody>
             </table>

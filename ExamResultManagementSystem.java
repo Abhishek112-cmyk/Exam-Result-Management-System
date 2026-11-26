@@ -53,6 +53,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
@@ -64,31 +66,32 @@ import javax.swing.table.JTableHeader;
 class StudentResult {
     private String id;
     private String name;
-    private int mark1;
-    private int mark2;
-    private int mark3;
+    private int[] marks;
     private int total;
+    private int maxMarks;
     private double percentage;
     private String result;
 
-    public StudentResult(String id, String name, int mark1, int mark2, int mark3) {
+    public StudentResult(String id, String name, int... marks) {
         this.id = id;
         this.name = name;
-        this.mark1 = mark1;
-        this.mark2 = mark2;
-        this.mark3 = mark3;
-        this.total = mark1 + mark2 + mark3;
-        this.percentage = (this.total * 100.0) / 300.0;
+        this.marks = (marks == null) ? new int[0] : marks.clone();
+        int sum = 0;
+        for (int i = 0; i < this.marks.length; i++) {
+            sum += this.marks[i];
+        }
+        this.total = sum;
+        this.maxMarks = this.marks.length * 100;
+        this.percentage = (this.maxMarks > 0) ? (this.total * 100.0) / this.maxMarks : 0.0;
         this.result = (this.percentage >= 40.0) ? "Pass" : "Fail";
     }
 
-    public StudentResult(String id, String name, int mark1, int mark2, int mark3, int total, double percentage, String result) {
+    public StudentResult(String id, String name, int[] marks, int total, int maxMarks, double percentage, String result) {
         this.id = id;
         this.name = name;
-        this.mark1 = mark1;
-        this.mark2 = mark2;
-        this.mark3 = mark3;
+        this.marks = (marks == null) ? new int[0] : marks.clone();
         this.total = total;
+        this.maxMarks = maxMarks;
         this.percentage = percentage;
         this.result = result;
     }
@@ -109,20 +112,24 @@ class StudentResult {
         this.name = name;
     }
 
-    public int getMark1() {
-        return mark1;
+    public int[] getMarks() {
+        return marks.clone();
     }
 
-    public int getMark2() {
-        return mark2;
+    public int getSubjectCount() {
+        return marks.length;
     }
 
-    public int getMark3() {
-        return mark3;
+    public int getMarkAt(int index) {
+        return (index >= 0 && index < marks.length) ? marks[index] : -1;
     }
 
     public int getTotal() {
         return total;
+    }
+
+    public int getMaxMarks() {
+        return maxMarks;
     }
 
     public double getPercentage() {
@@ -134,12 +141,12 @@ class StudentResult {
     }
 
     /**
-     * Formats full details:
+     * Formats full details with dynamic maxMarks:
      * e.g.: ERP 501 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
      */
     public String toFullDetailString() {
-        return String.format(Locale.US, "%s | %s | Total: %d/300 | Percentage: %.2f | Result: %s",
-                id, name, total, percentage, result);
+        return String.format(Locale.US, "%s | %s | Total: %d/%d | Percentage: %.2f | Result: %s",
+                id, name, total, maxMarks, percentage, result);
     }
 
     /**
@@ -152,21 +159,34 @@ class StudentResult {
     }
 
     /**
-     * File storage format (CSV) preserving raw marks and computed metrics.
+     * File storage format (CSV) preserving variable-length raw marks and computed metrics.
      */
     public String toFileString() {
-        return String.format(Locale.US, "%s,%s,%d,%d,%d,%d,%.2f,%s",
-                id, name, mark1, mark2, mark3, total, percentage, result);
+        StringBuilder sb = new StringBuilder();
+        sb.append(id).append(",").append(name);
+        for (int i = 0; i < marks.length; i++) {
+            sb.append(",").append(marks[i]);
+        }
+        sb.append(",").append(total)
+          .append(",").append(String.format(Locale.US, "%.2f", percentage))
+          .append(",").append(result);
+        return sb.toString();
     }
 
     /**
      * Serializes this record as a JSON object for the local HTTP server.
      */
     public String toJsonString() {
+        StringBuilder marksArr = new StringBuilder("[");
+        for (int i = 0; i < marks.length; i++) {
+            if (i > 0) marksArr.append(",");
+            marksArr.append(marks[i]);
+        }
+        marksArr.append("]");
         return String.format(
                 Locale.US,
-                "{\"id\":\"%s\",\"name\":\"%s\",\"mark1\":%d,\"mark2\":%d,\"mark3\":%d,\"total\":%d,\"percentage\":%.2f,\"result\":\"%s\"}",
-                escapeJson(id), escapeJson(name), mark1, mark2, mark3, total, percentage, escapeJson(result));
+                "{\"id\":\"%s\",\"name\":\"%s\",\"marks\":%s,\"total\":%d,\"maxMarks\":%d,\"percentage\":%.2f,\"result\":\"%s\"}",
+                escapeJson(id), escapeJson(name), marksArr.toString(), total, maxMarks, percentage, escapeJson(result));
     }
 
     private static String escapeJson(String s) {
@@ -433,10 +453,16 @@ public class ExamResultManagementSystem {
                 if ("add".equalsIgnoreCase(action)) {
                     String erpId = extractJsonString(body, "erpId");
                     String name = extractJsonString(body, "name");
-                    String m1 = extractJsonString(body, "m1");
-                    String m2 = extractJsonString(body, "m2");
-                    String m3 = extractJsonString(body, "m3");
-                    OperationResult op = addResultFromInputs(list, erpId, name, m1, m2, m3);
+                    String[] marksArr = extractJsonStringArray(body, "marks");
+                    OperationResult op;
+                    if (marksArr != null) {
+                        op = addResultFromInputs(list, erpId, name, marksArr);
+                    } else {
+                        String m1 = extractJsonString(body, "m1");
+                        String m2 = extractJsonString(body, "m2");
+                        String m3 = extractJsonString(body, "m3");
+                        op = addResultFromInputs(list, erpId, name, m1, m2, m3);
+                    }
                     if (op.isSuccess()) {
                         saveResultsToFile(list, FILE_NAME);
                     } else {
@@ -541,6 +567,49 @@ public class ExamResultManagementSystem {
         }
     }
 
+    private static String[] extractJsonStringArray(String json, String key) {
+        if (json == null || key == null) return null;
+        String needle = "\"" + key + "\"";
+        int kIdx = json.indexOf(needle);
+        if (kIdx == -1) return null;
+        int colon = json.indexOf(':', kIdx + needle.length());
+        if (colon == -1) return null;
+        int i = colon + 1;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+        if (i >= json.length() || json.charAt(i) != '[') return null;
+
+        ArrayList<String> items = new ArrayList<>();
+        i++;
+        while (i < json.length()) {
+            while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+            if (i >= json.length() || json.charAt(i) == ']') break;
+            if (json.charAt(i) == ',') {
+                i++;
+                continue;
+            }
+            if (json.charAt(i) == '"') {
+                StringBuilder sb = new StringBuilder();
+                i++;
+                while (i < json.length()) {
+                    char c = json.charAt(i++);
+                    if (c == '\\' && i < json.length()) {
+                        sb.append(json.charAt(i++));
+                    } else if (c == '"') {
+                        break;
+                    } else {
+                        sb.append(c);
+                    }
+                }
+                items.add(sb.toString());
+            } else {
+                int start = i;
+                while (i < json.length() && ",]".indexOf(json.charAt(i)) == -1) i++;
+                items.add(json.substring(start, i).trim());
+            }
+        }
+        return items.toArray(new String[0]);
+    }
+
     private static void handleStaticExchange(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         if (path == null || "/".equals(path)) path = "/index.html";
@@ -585,10 +654,10 @@ public class ExamResultManagementSystem {
 
     /**
      * Shared core method to validate ERP ID (manual first ID or auto-detected next ID),
-     * sanitize name, validate 3 subject marks (0-100), and append to the ArrayList.
+     * sanitize name, validate dynamic subject marks (0-100 each), and append to the ArrayList.
      */
     public static OperationResult createAndAddResult(
-            ArrayList<StudentResult> list, String rawErpId, String rawName, int m1, int m2, int m3) {
+            ArrayList<StudentResult> list, String rawErpId, String rawName, int... marks) {
         String resolvedId;
         if (rawErpId != null && !rawErpId.trim().isEmpty() && !"ERP".equalsIgnoreCase(rawErpId.trim())) {
             resolvedId = parseErpInput(rawErpId);
@@ -623,11 +692,17 @@ public class ExamResultManagementSystem {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
         }
 
-        if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
-            return new OperationResult(false, "Invalid marks. Each mark must be between 0 and 100.", null);
+        if (marks == null || marks.length == 0) {
+            return new OperationResult(false, "Invalid marks. Please enter marks for at least 1 subject.", null);
         }
 
-        StudentResult newResult = new StudentResult(resolvedId, name, m1, m2, m3);
+        for (int i = 0; i < marks.length; i++) {
+            if (marks[i] < 0 || marks[i] > 100) {
+                return new OperationResult(false, "Invalid marks. Each mark must be between 0 and 100.", null);
+            }
+        }
+
+        StudentResult newResult = new StudentResult(resolvedId, name, marks);
         list.add(newResult);
         updateNextIdNumber(list);
 
@@ -635,16 +710,12 @@ public class ExamResultManagementSystem {
         return new OperationResult(true, message, newResult);
     }
 
-    public static OperationResult createAndAddResult(ArrayList<StudentResult> list, String rawName, int m1, int m2, int m3) {
-        return createAndAddResult(list, null, rawName, m1, m2, m3);
-    }
-
     /**
-     * Parses raw mark strings (either 3 separate inputs or space/comma-separated marks in the first input)
-     * and adds the student result.
+     * Parses dynamic raw mark strings (ignoring trailing empty auto-grow slots, rejecting interior gaps,
+     * and supporting space/comma-separated marks) and adds the student result.
      */
     public static OperationResult addResultFromInputs(
-            ArrayList<StudentResult> list, String rawErpId, String rawName, String s1, String s2, String s3) {
+            ArrayList<StudentResult> list, String rawErpId, String rawName, String... rawMarks) {
         if (rawErpId == null || rawErpId.trim().isEmpty() || "ERP".equalsIgnoreCase(rawErpId.trim())) {
             if (nextIdNumber == null) {
                 updateNextIdNumber(list);
@@ -664,44 +735,46 @@ public class ExamResultManagementSystem {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
         }
 
-        String p1 = (s1 == null) ? "" : s1.trim();
-        String p2 = (s2 == null) ? "" : s2.trim();
-        String p3 = (s3 == null) ? "" : s3.trim();
+        int effectiveLen = (rawMarks == null) ? 0 : rawMarks.length;
+        while (effectiveLen > 0 && (rawMarks[effectiveLen - 1] == null || rawMarks[effectiveLen - 1].trim().isEmpty())) {
+            effectiveLen--;
+        }
 
-        int m1, m2, m3;
+        if (effectiveLen == 0) {
+            return new OperationResult(false, "Invalid marks. Please enter marks for at least 1 subject.", null);
+        }
+
+        ArrayList<Integer> parsedMarks = new ArrayList<>();
         try {
-            if (!p1.isEmpty() && p2.isEmpty() && p3.isEmpty() && p1.matches(".*[,\\s]+.*")) {
-                String[] tokens = p1.split("[,\\s]+");
-                if (tokens.length != 3) {
-                    return new OperationResult(false, "Invalid marks. Please enter exactly 3 marks.", null);
+            for (int i = 0; i < effectiveLen; i++) {
+                String entry = (rawMarks[i] == null) ? "" : rawMarks[i].trim();
+                if (entry.isEmpty()) {
+                    return new OperationResult(
+                            false,
+                            "Please enter marks for Subject " + (i + 1) + " or clear empty gaps between subjects.",
+                            null);
                 }
-                m1 = Integer.parseInt(tokens[0]);
-                m2 = Integer.parseInt(tokens[1]);
-                m3 = Integer.parseInt(tokens[2]);
-            } else {
-                if (p1.isEmpty() || p2.isEmpty() || p3.isEmpty()) {
-                    return new OperationResult(false, "Invalid marks. Please enter marks for all 3 subjects.", null);
+                String[] tokens = entry.split("[,\\s]+");
+                for (int k = 0; k < tokens.length; k++) {
+                    if (!tokens[k].isEmpty()) {
+                        parsedMarks.add(Integer.parseInt(tokens[k]));
+                    }
                 }
-                if (p1.matches(".*[,\\s]+.*") || p2.matches(".*[,\\s]+.*") || p3.matches(".*[,\\s]+.*")) {
-                    return new OperationResult(false, "Invalid marks. Please enter exactly 3 marks.", null);
-                }
-                m1 = Integer.parseInt(p1);
-                m2 = Integer.parseInt(p2);
-                m3 = Integer.parseInt(p3);
             }
         } catch (NumberFormatException e) {
             return new OperationResult(false, "Invalid marks. Each mark must be an integer between 0 and 100.", null);
         }
 
-        return createAndAddResult(list, rawErpId, nameCheck, m1, m2, m3);
-    }
+        int[] marksArr = new int[parsedMarks.size()];
+        for (int i = 0; i < parsedMarks.size(); i++) {
+            marksArr[i] = parsedMarks.get(i);
+        }
 
-    public static OperationResult addResultFromInputs(ArrayList<StudentResult> list, String rawName, String s1, String s2, String s3) {
-        return addResultFromInputs(list, null, rawName, s1, s2, s3);
+        return createAndAddResult(list, rawErpId, nameCheck, marksArr);
     }
 
     /**
-     * Feature 1: Add Result (Console interaction)
+     * Feature 1: Add Result (Console interaction — supports any number of subjects >= 1)
      */
     public static void addResult(Scanner scanner, ArrayList<StudentResult> list) {
         String rawErp = null;
@@ -730,48 +803,14 @@ public class ExamResultManagementSystem {
             return;
         }
 
-        System.out.print("Enter Marks (3 subjects separated by space): ");
+        System.out.print("Enter Marks in subjects (0 - 100 each, space-separated): ");
         if (!scanner.hasNextLine()) return;
         String marksLine = scanner.nextLine().trim();
         while (marksLine.isEmpty() && scanner.hasNextLine()) {
             marksLine = scanner.nextLine().trim();
         }
 
-        String[] tokens = marksLine.split("[,\\s]+");
-        int m1, m2, m3;
-
-        try {
-            if (tokens.length > 3) {
-                System.out.println("Invalid marks. Please enter exactly 3 marks.");
-                return;
-            } else if (tokens.length == 3) {
-                m1 = Integer.parseInt(tokens[0]);
-                m2 = Integer.parseInt(tokens[1]);
-                m3 = Integer.parseInt(tokens[2]);
-            } else {
-                int[] marks = new int[3];
-                int idx = 0;
-                for (int i = 0; i < tokens.length; i++) {
-                    if (idx < 3) marks[idx++] = Integer.parseInt(tokens[i]);
-                }
-                while (idx < 3 && scanner.hasNextLine()) {
-                    String line = scanner.nextLine().trim();
-                    if (line.isEmpty()) continue;
-                    String[] lineTokens = line.split("[,\\s]+");
-                    for (int i = 0; i < lineTokens.length; i++) {
-                        if (idx < 3) marks[idx++] = Integer.parseInt(lineTokens[i]);
-                    }
-                }
-                m1 = marks[0];
-                m2 = marks[1];
-                m3 = marks[2];
-            }
-        } catch (NumberFormatException e) {
-            System.out.println("Invalid marks. Each mark must be an integer between 0 and 100.");
-            return;
-        }
-
-        OperationResult outcome = createAndAddResult(list, rawErp, name, m1, m2, m3);
+        OperationResult outcome = addResultFromInputs(list, rawErp, name, marksLine);
         System.out.println(outcome.getMessage());
     }
 
@@ -950,7 +989,7 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Parses a single line from results.txt into a StudentResult object.
+     * Parses a single line from results.txt into a StudentResult object (supports dynamic N subjects).
      */
     public static StudentResult parseLine(String line) {
         if (line == null) return null;
@@ -968,13 +1007,20 @@ public class ExamResultManagementSystem {
                     String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int total = 0;
+                    int maxMarks = 300;
                     double percentage = 0.0;
                     String result = "Pass";
                     for (int i = 0; i < parts.length; i++) {
                         String p = parts[i];
                         if (p.startsWith("Total:")) {
-                            String totalStr = p.replace("Total:", "").replace("/300", "").trim();
-                            total = (int) Math.round(Double.parseDouble(totalStr));
+                            String totalStr = p.replace("Total:", "").trim();
+                            if (totalStr.contains("/")) {
+                                String[] tp = totalStr.split("/");
+                                total = (int) Math.round(Double.parseDouble(tp[0].trim()));
+                                maxMarks = Integer.parseInt(tp[1].trim());
+                            } else {
+                                total = (int) Math.round(Double.parseDouble(totalStr));
+                            }
                         } else if (p.startsWith("Percentage:")) {
                             String pctStr = p.replace("Percentage:", "").trim();
                             percentage = Double.parseDouble(pctStr);
@@ -982,41 +1028,14 @@ public class ExamResultManagementSystem {
                             result = p.replace("Result:", "").trim();
                         }
                     }
-                    int m = total / 3;
-                    int rem = total % 3;
-                    return new StudentResult(id, name, m + (rem > 0 ? 1 : 0), m + (rem > 1 ? 1 : 0), m, total, percentage, result);
-                }
-
-                if (parts.length == 4) {
-                    String id = normalizeLoadedId(parts[0]);
-                    String name = parts[1];
-                    double percentage = Double.parseDouble(parts[2]);
-                    String result = parts[3];
-                    int total = (int) Math.round((percentage * 300.0) / 100.0);
-                    int m = total / 3;
-                    int rem = total % 3;
-                    return new StudentResult(id, name, m + (rem > 0 ? 1 : 0), m + (rem > 1 ? 1 : 0), m, total, percentage, result);
-                }
-
-                if (parts.length == 5) {
-                    String id = normalizeLoadedId(parts[0]);
-                    String name = parts[1];
-                    int m1 = Integer.parseInt(parts[2]);
-                    int m2 = Integer.parseInt(parts[3]);
-                    int m3 = Integer.parseInt(parts[4]);
-                    return new StudentResult(id, name, m1, m2, m3);
-                }
-
-                if (parts.length >= 8) {
-                    String id = normalizeLoadedId(parts[0]);
-                    String name = parts[1];
-                    int m1 = Integer.parseInt(parts[2]);
-                    int m2 = Integer.parseInt(parts[3]);
-                    int m3 = Integer.parseInt(parts[4]);
-                    int total = Integer.parseInt(parts[5]);
-                    double percentage = Double.parseDouble(parts[6]);
-                    String result = parts[7];
-                    return new StudentResult(id, name, m1, m2, m3, total, percentage, result);
+                    int subCount = Math.max(1, maxMarks / 100);
+                    int[] marks = new int[subCount];
+                    int base = total / subCount;
+                    int rem = total % subCount;
+                    for (int s = 0; s < subCount; s++) {
+                        marks[s] = base + (s < rem ? 1 : 0);
+                    }
+                    return new StudentResult(id, name, marks, total, maxMarks, percentage, result);
                 }
             } else if (line.contains(",")) {
                 String[] parts = line.split(",");
@@ -1024,23 +1043,22 @@ public class ExamResultManagementSystem {
                     parts[i] = parts[i].trim();
                 }
 
-                if (parts.length == 5) {
+                if (parts.length >= 3) {
                     String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
-                    int m1 = Integer.parseInt(parts[2]);
-                    int m2 = Integer.parseInt(parts[3]);
-                    int m3 = Integer.parseInt(parts[4]);
-                    return new StudentResult(id, name, m1, m2, m3);
-                } else if (parts.length >= 8) {
-                    String id = normalizeLoadedId(parts[0]);
-                    String name = parts[1];
-                    int m1 = Integer.parseInt(parts[2]);
-                    int m2 = Integer.parseInt(parts[3]);
-                    int m3 = Integer.parseInt(parts[4]);
-                    int total = Integer.parseInt(parts[5]);
-                    double percentage = Double.parseDouble(parts[6]);
-                    String result = parts[7];
-                    return new StudentResult(id, name, m1, m2, m3, total, percentage, result);
+                    String last = parts[parts.length - 1];
+                    int markEndExclusive = parts.length;
+                    if (("Pass".equalsIgnoreCase(last) || "Fail".equalsIgnoreCase(last)) && parts.length >= 6) {
+                        markEndExclusive = parts.length - 3;
+                    }
+                    int count = markEndExclusive - 2;
+                    if (count >= 1) {
+                        int[] marks = new int[count];
+                        for (int i = 0; i < count; i++) {
+                            marks[i] = Integer.parseInt(parts[2 + i]);
+                        }
+                        return new StudentResult(id, name, marks);
+                    }
                 }
             }
         } catch (Exception ignored) {
@@ -1248,9 +1266,10 @@ class ExamResultGUI extends JFrame {
     private JLabel formNextIdBadge;
     private JTextField erpIdField;
     private JTextField nameField;
-    private JTextField mark1Field;
-    private JTextField mark2Field;
-    private JTextField mark3Field;
+    private JLabel subjectsCountLabel;
+    private JPanel dynamicMarksPanel;
+    private final ArrayList<JTextField> dynamicMarkFields = new ArrayList<>();
+    private boolean updatingDynamicMarks = false;
     private JTextField searchIdField;
 
     private JPanel statusBannerPanel;
@@ -1309,7 +1328,7 @@ class ExamResultGUI extends JFrame {
         title.setFont(new Font("SansSerif", Font.BOLD, 21));
         title.setForeground(Color.WHITE);
 
-        JLabel subtitle = new JLabel("PS No. 48  •  File: " + fileName + "  •  3 Subjects (/100 each)  •  Pass >= 40.00%");
+        JLabel subtitle = new JLabel("PS No. 48  •  File: " + fileName + "  •  Subjects (/100 each)  •  Pass >= 40.00%");
         subtitle.setFont(new Font("SansSerif", Font.PLAIN, 12));
         subtitle.setForeground(new Color(148, 163, 184));
 
@@ -1451,27 +1470,22 @@ class ExamResultGUI extends JFrame {
 
         gbc.gridy = 5;
         gbc.insets = new Insets(4, 4, 2, 4);
-        card.add(createFieldLabel("Marks in 3 Subjects (0 - 100 each)"), gbc);
+        JPanel marksHeaderRow = new JPanel(new BorderLayout());
+        marksHeaderRow.setOpaque(false);
+        marksHeaderRow.add(createFieldLabel("Marks in subjects (0 - 100 each)"), BorderLayout.WEST);
+        subjectsCountLabel = new JLabel("0 subjects");
+        subjectsCountLabel.setFont(new Font("SansSerif", Font.BOLD, 11));
+        subjectsCountLabel.setForeground(PRIMARY);
+        marksHeaderRow.add(subjectsCountLabel, BorderLayout.EAST);
+        card.add(marksHeaderRow, gbc);
 
-        mark1Field = createStyledTextField("");
-        mark2Field = createStyledTextField("");
-        mark3Field = createStyledTextField("");
-        mark1Field.setHorizontalAlignment(JTextField.CENTER);
-        mark2Field.setHorizontalAlignment(JTextField.CENTER);
-        mark3Field.setHorizontalAlignment(JTextField.CENTER);
-
-        JPanel marksGrid = new JPanel(new GridLayout(2, 3, 8, 2));
-        marksGrid.setOpaque(false);
-        marksGrid.add(createSubCaption("Subject 1"));
-        marksGrid.add(createSubCaption("Subject 2"));
-        marksGrid.add(createSubCaption("Subject 3"));
-        marksGrid.add(mark1Field);
-        marksGrid.add(mark2Field);
-        marksGrid.add(mark3Field);
+        dynamicMarksPanel = new JPanel(new GridLayout(0, 3, 8, 6));
+        dynamicMarksPanel.setOpaque(false);
+        resetDynamicMarksFields();
 
         gbc.gridy = 6;
-        gbc.insets = new Insets(0, 4, 8, 4);
-        card.add(marksGrid, gbc);
+        gbc.insets = new Insets(2, 4, 8, 4);
+        card.add(dynamicMarksPanel, gbc);
 
         JPanel btnRow = new JPanel(new BorderLayout(8, 0));
         btnRow.setOpaque(false);
@@ -1481,17 +1495,12 @@ class ExamResultGUI extends JFrame {
 
         ActionListener submitAddAction = e -> onAddResult();
         addBtn.addActionListener(submitAddAction);
-        mark1Field.addActionListener(submitAddAction);
-        mark2Field.addActionListener(submitAddAction);
-        mark3Field.addActionListener(submitAddAction);
 
         clearBtn.addActionListener(e -> {
             String autoErp = ExamResultManagementSystem.formatNextId();
             erpIdField.setText("ERP".equals(autoErp) ? "" : autoErp);
             nameField.setText("");
-            mark1Field.setText("");
-            mark2Field.setText("");
-            mark3Field.setText("");
+            resetDynamicMarksFields();
             if ("ERP".equals(autoErp)) {
                 erpIdField.requestFocusInWindow();
             } else {
@@ -1598,7 +1607,7 @@ class ExamResultGUI extends JFrame {
         tableHeaderBar.add(tableModeLabel, BorderLayout.EAST);
 
         String[] columns = {
-            "#", "ERP ID", "Student Name", "Sub 1", "Sub 2", "Sub 3", "Total (/300)", "Percentage", "Result"
+            "#", "ERP ID", "Student Name", "Subjects", "Total", "Percentage", "Result"
         };
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
@@ -1623,39 +1632,7 @@ class ExamResultGUI extends JFrame {
         th.setBackground(new Color(241, 245, 249));
         th.setForeground(TEXT_MAIN);
         th.setPreferredSize(new Dimension(th.getPreferredSize().width, 36));
-
-        int[] widths = {38, 96, 165, 58, 58, 58, 88, 90, 76};
-        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
-        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
-
-        for (int i = 0; i < widths.length; i++) {
-            resultsTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-            if (i != 2) {
-                resultsTable.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
-            }
-        }
-
-        resultsTable.getColumnModel().getColumn(8).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel lbl = (JLabel) super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-                lbl.setHorizontalAlignment(SwingConstants.CENTER);
-                lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
-                String text = (value == null) ? "" : value.toString();
-                if (!isSelected) {
-                    if ("Pass".equalsIgnoreCase(text)) {
-                        lbl.setBackground(PASS_BG);
-                        lbl.setForeground(PASS_FG);
-                    } else {
-                        lbl.setBackground(FAIL_BG);
-                        lbl.setForeground(FAIL_FG);
-                    }
-                }
-                return lbl;
-            }
-        });
+        applyDynamicTableColumnFormatting();
 
         JScrollPane tableScroll = new JScrollPane(resultsTable);
         tableScroll.setBorder(new LineBorder(BORDER_COLOR, 1));
@@ -1702,15 +1679,111 @@ class ExamResultGUI extends JFrame {
         return split;
     }
 
+    private void resetDynamicMarksFields() {
+        updatingDynamicMarks = true;
+        try {
+            dynamicMarkFields.clear();
+            dynamicMarksPanel.removeAll();
+            appendSubjectFieldSlot();
+            refreshSubjectCountCaption();
+            dynamicMarksPanel.revalidate();
+            dynamicMarksPanel.repaint();
+        } finally {
+            updatingDynamicMarks = false;
+        }
+    }
+
+    private void appendSubjectFieldSlot() {
+        int subjectNumber = dynamicMarkFields.size() + 1;
+        JPanel cell = new JPanel(new BorderLayout(0, 2));
+        cell.setOpaque(false);
+        cell.add(createSubCaption("Subject " + subjectNumber), BorderLayout.NORTH);
+
+        JTextField tf = createStyledTextField("");
+        tf.setHorizontalAlignment(JTextField.CENTER);
+        tf.addActionListener(e -> onAddResult());
+        tf.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                SwingUtilities.invokeLater(() -> syncDynamicMarksGrowth());
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                SwingUtilities.invokeLater(() -> syncDynamicMarksGrowth());
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                SwingUtilities.invokeLater(() -> syncDynamicMarksGrowth());
+            }
+        });
+
+        cell.add(tf, BorderLayout.CENTER);
+        dynamicMarkFields.add(tf);
+        dynamicMarksPanel.add(cell);
+    }
+
+    private void syncDynamicMarksGrowth() {
+        if (updatingDynamicMarks || dynamicMarkFields.isEmpty()) return;
+        updatingDynamicMarks = true;
+        try {
+            boolean changedLayout = false;
+            JTextField last = dynamicMarkFields.get(dynamicMarkFields.size() - 1);
+            if (!last.getText().trim().isEmpty()) {
+                appendSubjectFieldSlot();
+                changedLayout = true;
+            } else {
+                while (dynamicMarkFields.size() > 1) {
+                    int n = dynamicMarkFields.size();
+                    JTextField tail = dynamicMarkFields.get(n - 1);
+                    JTextField prev = dynamicMarkFields.get(n - 2);
+                    if (tail.getText().trim().isEmpty() && prev.getText().trim().isEmpty() && !tail.isFocusOwner()) {
+                        dynamicMarkFields.remove(n - 1);
+                        dynamicMarksPanel.remove(n - 1);
+                        changedLayout = true;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            refreshSubjectCountCaption();
+            if (changedLayout) {
+                dynamicMarksPanel.revalidate();
+                dynamicMarksPanel.repaint();
+            }
+        } finally {
+            updatingDynamicMarks = false;
+        }
+    }
+
+    private void refreshSubjectCountCaption() {
+        if (subjectsCountLabel == null) return;
+        int filled = 0;
+        for (int i = 0; i < dynamicMarkFields.size(); i++) {
+            if (!dynamicMarkFields.get(i).getText().trim().isEmpty()) {
+                filled++;
+            }
+        }
+        if (filled == 0) {
+            subjectsCountLabel.setText("0 subjects");
+        } else if (filled == 1) {
+            subjectsCountLabel.setText("1 subject (/100)");
+        } else {
+            subjectsCountLabel.setText(filled + " subjects (/" + (filled * 100) + ")");
+        }
+    }
+
     private void onAddResult() {
         String rawErp = erpIdField.getText();
         String rawName = nameField.getText();
-        String s1 = mark1Field.getText();
-        String s2 = mark2Field.getText();
-        String s3 = mark3Field.getText();
+        String[] rawMarks = new String[dynamicMarkFields.size()];
+        for (int i = 0; i < dynamicMarkFields.size(); i++) {
+            rawMarks[i] = dynamicMarkFields.get(i).getText();
+        }
 
         OperationResult outcome = ExamResultManagementSystem.addResultFromInputs(
-                resultsList, rawErp, rawName, s1, s2, s3);
+                resultsList, rawErp, rawName, rawMarks);
         appendLog("> Menu Option 1 (Add Result)");
         appendLog(outcome.getMessage());
 
@@ -1727,9 +1800,7 @@ class ExamResultGUI extends JFrame {
             }
 
             nameField.setText("");
-            mark1Field.setText("");
-            mark2Field.setText("");
-            mark3Field.setText("");
+            resetDynamicMarksFields();
             nameField.requestFocusInWindow();
         } else {
             setBanner(outcome.getMessage(), false, false);
@@ -1847,21 +1918,91 @@ class ExamResultGUI extends JFrame {
         System.exit(0);
     }
 
+    private void applyDynamicTableColumnFormatting() {
+        int colCount = resultsTable.getColumnModel().getColumnCount();
+        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
+        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+
+        for (int i = 0; i < colCount; i++) {
+            int width = 64;
+            if (i == 0) width = 38;
+            else if (i == 1) width = 96;
+            else if (i == 2) width = 160;
+            else if (i == colCount - 3) width = 88;
+            else if (i == colCount - 2) width = 90;
+            else if (i == colCount - 1) width = 76;
+
+            resultsTable.getColumnModel().getColumn(i).setPreferredWidth(width);
+            if (i != 2 && i != colCount - 1) {
+                resultsTable.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
+            }
+        }
+
+        if (colCount > 0) {
+            resultsTable.getColumnModel().getColumn(colCount - 1).setCellRenderer(new DefaultTableCellRenderer() {
+                @Override
+                public Component getTableCellRendererComponent(
+                        JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                    JLabel lbl = (JLabel) super.getTableCellRendererComponent(
+                            table, value, isSelected, hasFocus, row, column);
+                    lbl.setHorizontalAlignment(SwingConstants.CENTER);
+                    lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
+                    String text = (value == null) ? "" : value.toString();
+                    if (!isSelected) {
+                        if ("Pass".equalsIgnoreCase(text)) {
+                            lbl.setBackground(PASS_BG);
+                            lbl.setForeground(PASS_FG);
+                        } else {
+                            lbl.setBackground(FAIL_BG);
+                            lbl.setForeground(FAIL_FG);
+                        }
+                    }
+                    return lbl;
+                }
+            });
+        }
+    }
+
     private void refreshTable(boolean sortedView) {
-        tableModel.setRowCount(0);
+        int maxSub = 0;
+        for (int i = 0; i < resultsList.size(); i++) {
+            int sc = resultsList.get(i).getSubjectCount();
+            if (sc > maxSub) maxSub = sc;
+        }
+
+        ArrayList<String> cols = new ArrayList<>();
+        cols.add("#");
+        cols.add("ERP ID");
+        cols.add("Student Name");
+        if (maxSub <= 0) {
+            cols.add("Subjects");
+        } else {
+            for (int s = 1; s <= maxSub; s++) {
+                cols.add("Sub " + s);
+            }
+        }
+        cols.add("Total");
+        cols.add("Percentage");
+        cols.add("Result");
+
+        tableModel.setDataVector(new Object[0][0], cols.toArray(new String[0]));
+        applyDynamicTableColumnFormatting();
+
         for (int i = 0; i < resultsList.size(); i++) {
             StudentResult r = resultsList.get(i);
-            tableModel.addRow(new Object[]{
-                i + 1,
-                r.getId(),
-                r.getName(),
-                r.getMark1(),
-                r.getMark2(),
-                r.getMark3(),
-                r.getTotal() + "/300",
-                String.format(Locale.US, "%.2f", r.getPercentage()),
-                r.getResult()
-            });
+            Object[] row = new Object[cols.size()];
+            row[0] = i + 1;
+            row[1] = r.getId();
+            row[2] = r.getName();
+            for (int s = 0; s < maxSub; s++) {
+                int m = r.getMarkAt(s);
+                row[3 + s] = (m >= 0) ? m : "—";
+            }
+            int tailBase = 3 + (maxSub <= 0 ? 1 : maxSub);
+            row[tailBase] = r.getTotal() + "/" + r.getMaxMarks();
+            row[tailBase + 1] = String.format(Locale.US, "%.2f", r.getPercentage());
+            row[tailBase + 2] = r.getResult();
+            tableModel.addRow(row);
         }
         if (sortedView) {
             tableModeLabel.setText("Sorted by Percentage: High to Low");

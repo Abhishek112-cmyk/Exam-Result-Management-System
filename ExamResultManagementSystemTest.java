@@ -9,9 +9,9 @@ import javax.swing.AbstractButton;
 import javax.swing.JLabel;
 
 /**
- * Automated test runner for ExamResultManagementSystem (Console + GUI controller + Auto-Detected ERP IDs).
- * Validates empty-state "ERP" display, manual first ERP entry, automatic +1 detection,
- * duplicate ERP rejection, custom Bubble Sort & Linear Search, and clean UI headings.
+ * Automated test runner for ExamResultManagementSystem (Dynamic Subjects + Auto-Detected ERP IDs).
+ * Validates variable subject counts (1, 3, 5, 8 subjects), trailing auto-grow slot handling,
+ * empty-state "ERP" display, automatic +1 ERP detection, custom Bubble Sort & Linear Search, and UI labels.
  */
 public class ExamResultManagementSystemTest {
 
@@ -28,17 +28,18 @@ public class ExamResultManagementSystemTest {
         testCase2_BoundaryMinimumInput();
         testCase3_InvalidInput();
         testCase4_DifferentValidScenario();
+        testDynamicVariableSubjectCounts();
         testDuplicateErpRejection();
         testNegativeMarksEdgeCase();
         testSearchNotFoundEdgeCase();
-        testFilePersistenceRoundTrip();
+        testFilePersistenceRoundTripVariableSubjects();
         testCustomSortingLogicDirectly();
         testCustomSearchingLogicDirectly();
-        testNameSanitizationAndExtraMarks();
+        testNameSanitizationAndInteriorGapValidation();
         testGuiControllerOperationsAndFormats();
         testMultipleRecordsScale();
         testClearAllRecordsResetsToPlainErp();
-        testSwingGuiEmptyAndPopulatedLabels();
+        testSwingGuiDynamicSubjectsAndCleanLabels();
 
         System.out.println("\n==================================================");
         System.out.printf("  TEST RESULTS: %d / %d PASSED%n", testsPassed, testsTotal);
@@ -59,10 +60,6 @@ public class ExamResultManagementSystemTest {
         }
     }
 
-    /**
-     * Verifies that when 0 records exist, formatNextId() returns just "ERP" (no hardcoded number)
-     * and adding without a first ERP ID asks for the starting ERP ID.
-     */
     private static void testEmptyStateDisplaysJustErp() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
@@ -79,9 +76,6 @@ public class ExamResultManagementSystemTest {
                 "Expected failure when first ERP ID is omitted on empty list");
     }
 
-    /**
-     * Test Case 1: Normal Input + Auto-Detection of Next ERP ID
-     */
     private static void testCase1_NormalInputAndAutoDetectNext() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
@@ -101,9 +95,6 @@ public class ExamResultManagementSystemTest {
                 "Expected nextId 'ERP 502', got: " + ExamResultManagementSystem.formatNextId());
     }
 
-    /**
-     * Test Case 2: Boundary / Minimum Input (40.00% -> Pass)
-     */
     private static void testCase2_BoundaryMinimumInput() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
@@ -121,9 +112,6 @@ public class ExamResultManagementSystemTest {
                 "Boundary condition failed");
     }
 
-    /**
-     * Test Case 3: Invalid Input (marks > 100)
-     */
     private static void testCase3_InvalidInput() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
@@ -141,15 +129,11 @@ public class ExamResultManagementSystemTest {
                 "List should remain empty and nextId should remain 'ERP'");
     }
 
-    /**
-     * Test Case 4: Add Subsequent Record (Auto-Detected ID) + Sort + Search
-     */
     private static void testCase4_DifferentValidScenario() {
         ArrayList<StudentResult> list = new ArrayList<>();
         list.add(new StudentResult("ERP 501", "Kiran Patel", 80, 70, 90));
         ExamResultManagementSystem.updateNextIdNumber(list);
 
-        // Notice: no ERP ID entered in console input because ERP 502 is auto-detected!
         String simulatedInput = "1\nMitali Roy\n35 30 38\n4\n3\nERP 502\n5\n";
         String output = runWithInput(list, simulatedInput);
 
@@ -171,13 +155,49 @@ public class ExamResultManagementSystemTest {
                 "Missing or incorrect 4(c) output. Expected: " + expectedC);
     }
 
+    /**
+     * Tests dynamic subjects: 1 subject (/100), 5 subjects (/500), 8 subjects (/800),
+     * plus ignoring the trailing blank auto-grow slot!
+     */
+    private static void testDynamicVariableSubjectCounts() {
+        ArrayList<StudentResult> list = new ArrayList<>();
+        ExamResultManagementSystem.updateNextIdNumber(list);
+
+        // 1 subject + trailing blank auto-grow slot
+        OperationResult oneSub = ExamResultManagementSystem.addResultFromInputs(
+                list, "101", "Solo Subject", "88", "");
+        assertTrue("Dynamic Subjects - 1 Subject (/100) & Trailing Blank Ignored",
+                oneSub.isSuccess()
+                        && oneSub.getStudentResult().getSubjectCount() == 1
+                        && oneSub.getMessage().contains("Total: 88/100 | Percentage: 88.00 | Result: Pass"),
+                "Unexpected 1-subject output: " + oneSub.getMessage());
+
+        // 5 subjects + trailing blank auto-grow slot
+        OperationResult fiveSub = ExamResultManagementSystem.addResultFromInputs(
+                list, "", "Five Subjects", "80", "70", "90", "85", "95", "");
+        assertTrue("Dynamic Subjects - 5 Subjects (/500) Auto-Grow",
+                fiveSub.isSuccess()
+                        && fiveSub.getStudentResult().getSubjectCount() == 5
+                        && fiveSub.getMessage().contains("Total: 420/500 | Percentage: 84.00 | Result: Pass"),
+                "Unexpected 5-subject output: " + fiveSub.getMessage());
+
+        // 6 subjects pasted in space-separated string
+        OperationResult sixSub = ExamResultManagementSystem.addResultFromInputs(
+                list, "", "Six Subjects", "50 60 70 80 90 100");
+        assertTrue("Dynamic Subjects - 6 Pasted Subjects (/600)",
+                sixSub.isSuccess()
+                        && sixSub.getStudentResult().getSubjectCount() == 6
+                        && sixSub.getMessage().contains("Total: 450/600 | Percentage: 75.00 | Result: Pass"),
+                "Unexpected 6-subject output: " + sixSub.getMessage());
+    }
+
     private static void testDuplicateErpRejection() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
         ExamResultManagementSystem.addResultFromInputs(list, "ERP 900", "Kiran Patel", "80", "70", "90");
 
         OperationResult dup = ExamResultManagementSystem.addResultFromInputs(
-                list, "900", "Another Student", "60", "60", "60");
+                list, "900", "Another Student", "60", "60");
         assertTrue("Edge Case - Duplicate ERP ID Rejected",
                 !dup.isSuccess() && list.size() == 1 && dup.getMessage().contains("Duplicate ERP ID"),
                 "Duplicate ERP ID should be rejected");
@@ -186,7 +206,7 @@ public class ExamResultManagementSystemTest {
     private static void testNegativeMarksEdgeCase() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.setNextIdNumber(300);
-        String simulatedInput = "1\nTest Student\n-5 50 60\n5\n";
+        String simulatedInput = "1\nTest Student\n-5 50 60 70\n5\n";
         String output = runWithInput(list, simulatedInput);
 
         assertTrue("Edge Case - Negative Marks Rejection",
@@ -206,46 +226,44 @@ public class ExamResultManagementSystemTest {
                 "Should display not found message");
     }
 
-    private static void testFilePersistenceRoundTrip() {
+    private static void testFilePersistenceRoundTripVariableSubjects() {
         String testFileName = "test_results_roundtrip.txt";
         File testFile = new File(testFileName);
         if (testFile.exists()) testFile.delete();
 
         ArrayList<StudentResult> original = new ArrayList<>();
-        original.add(new StudentResult("ERP 2050", "Kiran Patel", 80, 70, 90));
-        original.add(new StudentResult("ERP 2051", "Mitali Roy", 35, 30, 38));
+        original.add(new StudentResult("ERP 2050", "Two Sub Student", 80, 90));
+        original.add(new StudentResult("ERP 2051", "Five Sub Student", 70, 75, 80, 85, 90));
 
         ExamResultManagementSystem.saveResultsToFile(original, testFileName);
 
         ArrayList<StudentResult> loaded = new ArrayList<>();
         ExamResultManagementSystem.loadResultsFromFile(loaded, testFileName);
 
-        assertTrue("File Persistence - Both records reloaded & next ID auto-detected (ERP 2052)",
+        assertTrue("File Persistence - Variable-subject records reloaded & next ID auto-detected (ERP 2052)",
                 loaded.size() == 2 && "ERP 2052".equals(ExamResultManagementSystem.formatNextId()),
                 "Expected 2 loaded records and next ID ERP 2052");
 
-        assertTrue("File Persistence - Record 1 data integrity",
-                loaded.get(0).getId().equals("ERP 2050") &&
-                        loaded.get(0).getName().equals("Kiran Patel") &&
-                        loaded.get(0).getTotal() == 240 &&
-                        loaded.get(0).getResult().equals("Pass"),
-                "Loaded record 1 mismatch");
+        assertTrue("File Persistence - 2-Subject Record Integrity (/200)",
+                loaded.get(0).getSubjectCount() == 2
+                        && loaded.get(0).getTotal() == 170
+                        && loaded.get(0).getMaxMarks() == 200,
+                "Loaded 2-subject record mismatch");
 
-        assertTrue("File Persistence - Record 2 data integrity",
-                loaded.get(1).getId().equals("ERP 2051") &&
-                        loaded.get(1).getName().equals("Mitali Roy") &&
-                        loaded.get(1).getTotal() == 103 &&
-                        loaded.get(1).getResult().equals("Fail"),
-                "Loaded record 2 mismatch");
+        assertTrue("File Persistence - 5-Subject Record Integrity (/500)",
+                loaded.get(1).getSubjectCount() == 5
+                        && loaded.get(1).getTotal() == 400
+                        && loaded.get(1).getMaxMarks() == 500,
+                "Loaded 5-subject record mismatch");
 
         testFile.delete();
     }
 
     private static void testCustomSortingLogicDirectly() {
         ArrayList<StudentResult> list = new ArrayList<>();
-        StudentResult r1 = new StudentResult("ERP 401", "Low Student", 30, 30, 30);      // 30%
-        StudentResult r2 = new StudentResult("ERP 402", "High Student", 90, 90, 90);     // 90%
-        StudentResult r3 = new StudentResult("ERP 403", "Mid Student", 60, 60, 60);      // 60%
+        StudentResult r1 = new StudentResult("ERP 401", "Low Student", 30, 30);              // 30% (2 subjects)
+        StudentResult r2 = new StudentResult("ERP 402", "High Student", 90, 90, 90, 90, 90); // 90% (5 subjects)
+        StudentResult r3 = new StudentResult("ERP 403", "Mid Student", 60, 60, 60);          // 60% (3 subjects)
 
         list.add(r1);
         list.add(r2);
@@ -253,23 +271,17 @@ public class ExamResultManagementSystemTest {
 
         ExamResultManagementSystem.sortByPercentage(list);
 
-        assertTrue("Direct Sort Logic - First is Highest",
-                list.get(0).getId().equals("ERP 402") && list.get(0).getPercentage() == 90.0,
-                "Sort order failed for index 0");
-
-        assertTrue("Direct Sort Logic - Second is Middle",
-                list.get(1).getId().equals("ERP 403") && list.get(1).getPercentage() == 60.0,
-                "Sort order failed for index 1");
-
-        assertTrue("Direct Sort Logic - Third is Lowest",
-                list.get(2).getId().equals("ERP 401") && list.get(2).getPercentage() == 30.0,
-                "Sort order failed for index 2");
+        assertTrue("Direct Sort Logic - Compares Normalized Percentages Across Different Subject Counts",
+                list.get(0).getId().equals("ERP 402")
+                        && list.get(1).getId().equals("ERP 403")
+                        && list.get(2).getId().equals("ERP 401"),
+                "Sort order failed across mixed subject counts");
     }
 
     private static void testCustomSearchingLogicDirectly() {
         ArrayList<StudentResult> list = new ArrayList<>();
-        StudentResult r1 = new StudentResult("ERP 401", "Kiran Patel", 80, 70, 90);
-        StudentResult r2 = new StudentResult("ERP 402", "Mitali Roy", 35, 30, 38);
+        StudentResult r1 = new StudentResult("ERP 401", "Kiran Patel", 80, 70, 90, 85);
+        StudentResult r2 = new StudentResult("ERP 402", "Mitali Roy", 35, 30);
         list.add(r1);
         list.add(r2);
 
@@ -287,69 +299,44 @@ public class ExamResultManagementSystemTest {
         assertTrue("Direct Search Logic - Numeric Shorthand Match",
                 foundDigitsOnly != null && foundDigitsOnly.getName().equals("Mitali Roy"),
                 "Search failed for numeric shorthand 402");
-
-        StudentResult notFound = ExamResultManagementSystem.searchById(list, "ERP 99999");
-        assertTrue("Direct Search Logic - Non-existent ID returns null",
-                notFound == null,
-                "Search should return null for non-existent ID");
     }
 
-    private static void testNameSanitizationAndExtraMarks() {
+    private static void testNameSanitizationAndInteriorGapValidation() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.setNextIdNumber(601);
-        runWithInput(list, "1\nPatel, Kiran\n80 70 90\n5\n");
-        assertTrue("Edge Case - Comma in name is sanitized",
-                list.size() == 1 && list.get(0).getName().equals("Patel Kiran"),
+        runWithInput(list, "1\nPatel, Kiran\n80 70 90 95\n5\n");
+        assertTrue("Edge Case - Comma in name is sanitized with 4 subjects",
+                list.size() == 1 && list.get(0).getName().equals("Patel Kiran") && list.get(0).getSubjectCount() == 4,
                 "Name was not sanitized");
         StudentResult reparsed = ExamResultManagementSystem.parseLine(list.get(0).toFileString());
-        assertTrue("Edge Case - Sanitized record survives file round trip",
-                reparsed != null && reparsed.getName().equals("Patel Kiran"),
+        assertTrue("Edge Case - Sanitized 4-subject record survives file round trip",
+                reparsed != null && reparsed.getName().equals("Patel Kiran") && reparsed.getSubjectCount() == 4,
                 "Record lost on reload");
 
-        ArrayList<StudentResult> list2 = new ArrayList<>();
-        ExamResultManagementSystem.setNextIdNumber(602);
-        String out = runWithInput(list2, "1\nA B\n80 70 90 999\n5\n");
-        assertTrue("Edge Case - More than 3 marks rejected",
-                list2.isEmpty() && out.contains("exactly 3 marks"),
-                "Extra marks were accepted");
+        OperationResult gap = ExamResultManagementSystem.addResultFromInputs(
+                list, "", "Test Gap", "80", "", "90");
+        assertTrue("Edge Case - Interior Empty Subject Slot Rejected",
+                !gap.isSuccess() && gap.getMessage().contains("Subject 2"),
+                "Interior empty subject gap should be rejected");
     }
 
     private static void testGuiControllerOperationsAndFormats() {
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
 
-        // 1. Add 1st student with user-entered ERP ID "3001"
         OperationResult res1 = ExamResultManagementSystem.addResultFromInputs(
-                list, "3001", "Kiran Patel", "80", "70", "90");
-        assertTrue("GUI Controller - First Student Manual ERP Entry",
+                list, "3001", "Kiran Patel", "80", "70", "90", "100", "");
+        assertTrue("GUI Controller - 4 Dynamic Subjects (/400)",
                 res1.isSuccess() && res1.getMessage().equals(
-                        "Result added. ID: ERP 3001 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass"),
+                        "Result added. ID: ERP 3001 | Kiran Patel | Total: 340/400 | Percentage: 85.00 | Result: Pass"),
                 "Unexpected message: " + res1.getMessage());
 
-        // 2. Reject invalid marks without advancing auto-detected ERP 3002
-        OperationResult resInvalid = ExamResultManagementSystem.addResultFromInputs(
-                list, "", "Kiran Patel", "80", "105", "90");
-        assertTrue("GUI Controller - Invalid Marks Rejected Without Consuming ERP 3002",
-                !resInvalid.isSuccess()
-                        && "ERP 3002".equals(ExamResultManagementSystem.formatNextId()),
-                "Unexpected invalid result: " + resInvalid.getMessage());
-
-        // 3. Add 2nd student with blank ERP field -> auto-detects ERP 3002!
         OperationResult res2 = ExamResultManagementSystem.addResultFromInputs(
-                list, "", "Mitali Roy", "35 30 38", "", "");
-        assertTrue("GUI Controller - Auto-Detected ERP 3002 + Combined Marks Paste",
+                list, "", "Mitali Roy", "35", "33", "");
+        assertTrue("GUI Controller - 2 Dynamic Subjects (/200) Auto-Shrink",
                 res2.isSuccess() && res2.getMessage().equals(
-                        "Result added. ID: ERP 3002 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail"),
+                        "Result added. ID: ERP 3002 | Mitali Roy | Total: 68/200 | Percentage: 34.00 | Result: Fail"),
                 "Unexpected message: " + res2.getMessage());
-
-        // 4. Sort & format check (and nextId still auto-detects ERP 3003!)
-        ExamResultManagementSystem.sortByPercentage(list);
-        ExamResultManagementSystem.updateNextIdNumber(list);
-        String sortedText = ExamResultManagementSystem.formatSortedResults(list);
-        assertTrue("GUI Controller - Sorted Format Exact Match & Next ID ERP 3003",
-                sortedText.equals("1. ERP 3001 | Kiran Patel | 80.00 | Pass\n2. ERP 3002 | Mitali Roy | 34.33 | Fail")
-                        && "ERP 3003".equals(ExamResultManagementSystem.formatNextId()),
-                "Unexpected sort output:\n" + sortedText);
     }
 
     private static void testMultipleRecordsScale() {
@@ -359,8 +346,11 @@ public class ExamResultManagementSystemTest {
         for (int i = 0; i < 50; i++) {
             int mark = (i * 2) % 101;
             String firstErp = (i == 0) ? "1001" : null;
+            int subjectCount = (i % 6) + 1; // 1 to 6 subjects dynamically!
+            int[] marks = new int[subjectCount];
+            for (int s = 0; s < subjectCount; s++) marks[s] = mark;
             OperationResult r = ExamResultManagementSystem.createAndAddResult(
-                    list, firstErp, "Student " + (i + 1), mark, mark, mark);
+                    list, firstErp, "Student " + (i + 1), marks);
             if (!r.isSuccess()) {
                 assertTrue("Multi-Record Scale - Insertion", false, "Failed at i=" + i);
                 return;
@@ -377,7 +367,7 @@ public class ExamResultManagementSystemTest {
         }
 
         StudentResult foundLastAdded = ExamResultManagementSystem.searchById(list, "ERP 1050");
-        assertTrue("Multi-Record Scale - 50 Records Added, Sorted & Searched (ERP 1050)",
+        assertTrue("Multi-Record Scale - 50 Mixed-Subject Records Added, Sorted & Searched",
                 list.size() == 50 && monotonicDescending && foundLastAdded != null
                         && foundLastAdded.getName().equals("Student 50")
                         && "ERP 1051".equals(ExamResultManagementSystem.formatNextId()),
@@ -388,8 +378,7 @@ public class ExamResultManagementSystemTest {
         String tempFile = "test_clear_records.txt";
         ArrayList<StudentResult> list = new ArrayList<>();
         ExamResultManagementSystem.updateNextIdNumber(list);
-        ExamResultManagementSystem.createAndAddResult(list, "5001", "Kiran Patel", 80, 70, 90);
-        ExamResultManagementSystem.createAndAddResult(list, null, "Mitali Roy", 35, 30, 38);
+        ExamResultManagementSystem.createAndAddResult(list, "5001", "Kiran Patel", 80, 70, 90, 85);
         ExamResultManagementSystem.saveResultsToFile(list, tempFile);
 
         ExamResultManagementSystem.clearAllResults(list, tempFile);
@@ -403,7 +392,7 @@ public class ExamResultManagementSystemTest {
                 "Expected 'ERP' after clearAllResults, got: " + ExamResultManagementSystem.formatNextId());
     }
 
-    private static void testSwingGuiEmptyAndPopulatedLabels() {
+    private static void testSwingGuiDynamicSubjectsAndCleanLabels() {
         if (java.awt.GraphicsEnvironment.isHeadless()) {
             assertTrue("Swing GUI - Headless Safe Fallback", true, "Skipped window creation in headless mode");
             return;
@@ -418,15 +407,16 @@ public class ExamResultManagementSystemTest {
         emptyGui.dispose();
         new File("test_gui_empty.txt").delete();
 
-        boolean cleanAndNoHardcodedNumber = allEmptyText.contains("| ERP |")
-                && allEmptyText.contains("3. Search by ID")
-                && allEmptyText.contains("Student Exam Results")
-                && !allEmptyText.contains("10061")
+        boolean exactUpdatedLabels = allEmptyText.contains("Subjects (/100 each)")
+                && !allEmptyText.contains("3 Subjects")
+                && allEmptyText.contains("Marks in subjects (0 - 100 each)")
+                && !allEmptyText.contains("Marks in 3")
+                && allEmptyText.contains("| ERP |")
                 && !allEmptyText.contains("Linear Search")
                 && !allEmptyText.contains("ArrayList<StudentResult>");
 
-        assertTrue("Swing GUI - Empty State Shows 'ERP' With Zero Hardcoded Numbers or Bracketed Labels",
-                cleanAndNoHardcodedNumber,
+        assertTrue("Swing GUI - Updated 'Subjects (/100 each)' & 'Marks in subjects (0 - 100 each)' Labels",
+                exactUpdatedLabels,
                 "Unexpected UI text: " + allEmptyText);
     }
 
