@@ -1,16 +1,23 @@
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.RenderingHints;
+import java.awt.Toolkit;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.BufferedReader;
@@ -19,6 +26,11 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Scanner;
@@ -122,8 +134,8 @@ class StudentResult {
     }
 
     /**
-     * Formats full details matching the required specification:
-     * e.g.: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
+     * Formats full details:
+     * e.g.: ERP 10061 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
      */
     public String toFullDetailString() {
         return String.format(Locale.US, "%s | %s | Total: %d/300 | Percentage: %.2f | Result: %s",
@@ -131,8 +143,8 @@ class StudentResult {
     }
 
     /**
-     * Formats concise details matching the sort output specification:
-     * e.g.: ER101 | Kiran Patel | 80.00 | Pass
+     * Formats concise details for sorted output:
+     * e.g.: ERP 10061 | Kiran Patel | 80.00 | Pass
      */
     public String toSortString() {
         return String.format(Locale.US, "%s | %s | %.2f | %s",
@@ -147,6 +159,21 @@ class StudentResult {
                 id, name, mark1, mark2, mark3, total, percentage, result);
     }
 
+    /**
+     * Serializes this record as a JSON object for the local HTTP server.
+     */
+    public String toJsonString() {
+        return String.format(
+                Locale.US,
+                "{\"id\":\"%s\",\"name\":\"%s\",\"mark1\":%d,\"mark2\":%d,\"mark3\":%d,\"total\":%d,\"percentage\":%.2f,\"result\":\"%s\"}",
+                escapeJson(id), escapeJson(name), mark1, mark2, mark3, total, percentage, escapeJson(result));
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
     @Override
     public String toString() {
         return toFullDetailString();
@@ -154,7 +181,7 @@ class StudentResult {
 }
 
 /**
- * Outcome wrapper for shared validation and result creation between Console and GUI modes.
+ * Outcome wrapper for shared validation and result creation across Console, Swing GUI, and Web API.
  */
 class OperationResult {
     private final boolean success;
@@ -182,42 +209,74 @@ class OperationResult {
 
 /**
  * PS No. 48: Exam Result Management System
- * Supports both Console mode (default) and Desktop GUI mode (--gui) in a single .java file,
- * using ArrayList, manual searching, manual sorting, methods, and file handling (results.txt).
+ * Supports Console mode (default), Smooth Swing Desktop GUI (--gui), and Local Web Backend (--server)
+ * using ArrayList, manual Linear Search, manual Bubble Sort, methods, and file handling (results.txt).
  */
 public class ExamResultManagementSystem {
     public static final String FILE_NAME = "results.txt";
-    private static int nextIdNumber = 101;
+    public static final String ID_PREFIX = "ERP ";
+    public static final int INITIAL_ID_NUMBER = 10061;
+    private static int nextIdNumber = INITIAL_ID_NUMBER;
 
     public static void main(String[] args) {
         boolean launchGui = false;
+        boolean launchServer = false;
+        int port = 8080;
+
         if (args != null) {
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
                 if ("--gui".equalsIgnoreCase(arg) || "-g".equalsIgnoreCase(arg) || "gui".equalsIgnoreCase(arg)) {
                     launchGui = true;
-                    break;
+                } else if ("--server".equalsIgnoreCase(arg) || "server".equalsIgnoreCase(arg)) {
+                    launchServer = true;
+                } else if (arg.startsWith("--port=")) {
+                    try {
+                        port = Integer.parseInt(arg.substring("--port=".length()));
+                    } catch (NumberFormatException ignored) {
+                    }
                 }
             }
         }
 
-        if (launchGui) {
+        if (launchServer) {
+            startWebServer(port);
+        } else if (launchGui) {
             launchGuiApp();
         } else {
             runConsoleApp();
         }
     }
 
+    public static String formatId(int num) {
+        return ID_PREFIX + num;
+    }
+
     /**
-     * Launches the interactive Console application (default mode for terminal / grading).
+     * Normalizes an ERP ID string so "ERP 10061", "ERP10061", "erp 10061", and "10061" match cleanly.
+     */
+    public static String normalizeIdKey(String raw) {
+        if (raw == null) return "";
+        String cleaned = raw.trim().toUpperCase(Locale.US).replaceAll("\\s+", "");
+        if (cleaned.startsWith("ERP")) {
+            return "ERP" + cleaned.substring(3);
+        }
+        if (cleaned.startsWith("ER")) {
+            return "ERP" + cleaned.substring(2);
+        }
+        if (cleaned.matches("\\d+")) {
+            return "ERP" + cleaned;
+        }
+        return cleaned;
+    }
+
+    /**
+     * Launches the interactive Console application.
      */
     public static void runConsoleApp() {
         ArrayList<StudentResult> resultsList = new ArrayList<>();
-
-        // 1. Load data from file at startup
         loadResultsFromFile(resultsList, FILE_NAME);
 
-        // Register shutdown hook to guarantee data is saved on program termination
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             saveResultsToFile(resultsList, FILE_NAME);
         }));
@@ -228,7 +287,6 @@ public class ExamResultManagementSystem {
         while (running) {
             printMenu();
             if (!scanner.hasNextLine()) {
-                // End of input stream (EOF)
                 break;
             }
 
@@ -278,7 +336,7 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Launches the Java Swing Desktop GUI application.
+     * Launches the smooth Java Swing Desktop GUI application.
      */
     public static void launchGuiApp() {
         if (GraphicsEnvironment.isHeadless()) {
@@ -286,6 +344,9 @@ public class ExamResultManagementSystem {
             runConsoleApp();
             return;
         }
+
+        System.setProperty("awt.useSystemAAFontSettings", "on");
+        System.setProperty("swing.aatext", "true");
 
         ArrayList<StudentResult> resultsList = new ArrayList<>();
         loadResultsFromFile(resultsList, FILE_NAME);
@@ -303,9 +364,196 @@ public class ExamResultManagementSystem {
                 UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
             } catch (Exception ignored) {
             }
+            Toolkit.getDefaultToolkit().setDynamicLayout(true);
             ExamResultGUI gui = new ExamResultGUI(resultsList, FILE_NAME);
             gui.setVisible(true);
         });
+    }
+
+    /**
+     * Starts a lightweight pure-Java HTTP Server serving the upgraded Web Frontend (public/)
+     * and the /api/results JSON endpoints backed directly by ArrayList<StudentResult> and results.txt.
+     */
+    public static void startWebServer(int port) {
+        ArrayList<StudentResult> resultsList = new ArrayList<>();
+        loadResultsFromFile(resultsList, FILE_NAME);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            synchronized (resultsList) {
+                saveResultsToFile(resultsList, FILE_NAME);
+            }
+        }));
+
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
+            server.createContext("/api/results", exchange -> handleApiExchange(exchange, resultsList));
+            server.createContext("/", ExamResultManagementSystem::handleStaticExchange);
+            server.setExecutor(null);
+            server.start();
+            System.out.println("============================================================");
+            System.out.println("  Exam Result Management System Web Server Running");
+            System.out.println("  Open in browser: http://localhost:" + port);
+            System.out.println("  Persistence file: " + FILE_NAME);
+            System.out.println("============================================================");
+        } catch (IOException e) {
+            System.err.println("Failed to start HTTP server on port " + port + ": " + e.getMessage());
+        }
+    }
+
+    private static void handleApiExchange(HttpExchange exchange, ArrayList<StudentResult> list) throws IOException {
+        String method = exchange.getRequestMethod();
+        String responseJson;
+        int status = 200;
+
+        synchronized (list) {
+            if ("GET".equalsIgnoreCase(method)) {
+                responseJson = buildStateJson(list, true, "Ready.", null, -1);
+            } else if ("POST".equalsIgnoreCase(method)) {
+                String body = readBody(exchange.getRequestBody());
+                String action = extractJsonString(body, "action");
+
+                if ("add".equalsIgnoreCase(action)) {
+                    String name = extractJsonString(body, "name");
+                    String m1 = extractJsonString(body, "m1");
+                    String m2 = extractJsonString(body, "m2");
+                    String m3 = extractJsonString(body, "m3");
+                    OperationResult op = addResultFromInputs(list, name, m1, m2, m3);
+                    if (op.isSuccess()) {
+                        saveResultsToFile(list, FILE_NAME);
+                    } else {
+                        status = 400;
+                    }
+                    responseJson = buildStateJson(list, op.isSuccess(), op.getMessage(), op.getStudentResult(), list.size() - 1);
+                } else if ("search".equalsIgnoreCase(action)) {
+                    String query = extractJsonString(body, "id");
+                    StudentResult found = searchById(list, query);
+                    int idx = findIndexById(list, query);
+                    if (found != null) {
+                        responseJson = buildStateJson(list, true, "Found: " + found.toFullDetailString(), found, idx);
+                    } else {
+                        responseJson = buildStateJson(list, false, "Result not found for ID: " + query, null, -1);
+                    }
+                } else if ("sort".equalsIgnoreCase(action)) {
+                    if (list.isEmpty()) {
+                        responseJson = buildStateJson(list, false, "No results found.", null, -1);
+                    } else {
+                        sortByPercentage(list);
+                        saveResultsToFile(list, FILE_NAME);
+                        responseJson = buildStateJson(list, true, formatSortedResults(list), list.get(0), 0);
+                    }
+                } else if ("clear".equalsIgnoreCase(action)) {
+                    clearAllResults(list, FILE_NAME);
+                    responseJson = buildStateJson(list, true,
+                            "Cleared all saved records. Next ERP ID reset to " + formatId(nextIdNumber) + ".", null, -1);
+                } else {
+                    status = 400;
+                    responseJson = "{\"success\":false,\"message\":\"Unsupported action.\"}";
+                }
+            } else {
+                status = 405;
+                responseJson = "{\"success\":false,\"message\":\"Method not allowed.\"}";
+            }
+        }
+
+        byte[] bytes = responseJson.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        }
+    }
+
+    private static String buildStateJson(
+            ArrayList<StudentResult> list, boolean success, String message, StudentResult focus, int matchedIndex) {
+        int passCount = 0;
+        StringBuilder arr = new StringBuilder("[");
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) arr.append(",");
+            StudentResult r = list.get(i);
+            arr.append(r.toJsonString());
+            if ("Pass".equalsIgnoreCase(r.getResult())) passCount++;
+        }
+        arr.append("]");
+        int failCount = list.size() - passCount;
+        String safeMsg = message == null ? "" : message.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+        String focusJson = (focus == null) ? "null" : focus.toJsonString();
+
+        return String.format(
+                Locale.US,
+                "{\"success\":%b,\"message\":\"%s\",\"nextId\":\"%s\",\"matchedIndex\":%d,\"record\":%s,"
+                        + "\"stats\":{\"total\":%d,\"pass\":%d,\"fail\":%d},\"records\":%s}",
+                success, safeMsg, formatId(nextIdNumber), matchedIndex, focusJson,
+                list.size(), passCount, failCount, arr.toString());
+    }
+
+    private static String readBody(InputStream is) throws IOException {
+        byte[] buf = is.readAllBytes();
+        return new String(buf, StandardCharsets.UTF_8);
+    }
+
+    private static String extractJsonString(String json, String key) {
+        if (json == null || key == null) return "";
+        String needle = "\"" + key + "\"";
+        int kIdx = json.indexOf(needle);
+        if (kIdx == -1) return "";
+        int colon = json.indexOf(':', kIdx + needle.length());
+        if (colon == -1) return "";
+        int i = colon + 1;
+        while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;
+        if (i >= json.length()) return "";
+        if (json.charAt(i) == '"') {
+            StringBuilder sb = new StringBuilder();
+            i++;
+            while (i < json.length()) {
+                char c = json.charAt(i++);
+                if (c == '\\' && i < json.length()) {
+                    sb.append(json.charAt(i++));
+                } else if (c == '"') {
+                    break;
+                } else {
+                    sb.append(c);
+                }
+            }
+            return sb.toString();
+        } else {
+            int start = i;
+            while (i < json.length() && ",}".indexOf(json.charAt(i)) == -1) i++;
+            return json.substring(start, i).trim();
+        }
+    }
+
+    private static void handleStaticExchange(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        if (path == null || "/".equals(path)) path = "/index.html";
+        File publicDir = new File("public").getCanonicalFile();
+        File target = new File(publicDir, path.substring(1)).getCanonicalFile();
+
+        if (!target.getPath().startsWith(publicDir.getPath()) || !target.isFile()) {
+            target = new File(publicDir, "index.html");
+        }
+        if (!target.isFile()) {
+            byte[] notFound = "Frontend files not found in public/".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(404, notFound.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(notFound);
+            }
+            return;
+        }
+
+        String name = target.getName().toLowerCase(Locale.US);
+        String mime = "text/plain; charset=utf-8";
+        if (name.endsWith(".html")) mime = "text/html; charset=utf-8";
+        else if (name.endsWith(".css")) mime = "text/css; charset=utf-8";
+        else if (name.endsWith(".js")) mime = "application/javascript; charset=utf-8";
+        else if (name.endsWith(".svg")) mime = "image/svg+xml";
+        else if (name.endsWith(".json")) mime = "application/json; charset=utf-8";
+
+        byte[] content = Files.readAllBytes(target.toPath());
+        exchange.getResponseHeaders().set("Content-Type", mime);
+        exchange.sendResponseHeaders(200, content.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(content);
+        }
     }
 
     /**
@@ -318,25 +566,22 @@ public class ExamResultManagementSystem {
 
     /**
      * Shared core method to sanitize name, validate 3 subject marks (0-100),
-     * generate sequential ID (starting ER101), and append to the ArrayList.
+     * generate sequential ERP ID (starting ERP 10061), and append to the ArrayList.
      */
     public static OperationResult createAndAddResult(ArrayList<StudentResult> list, String rawName, int m1, int m2, int m3) {
         if (rawName == null) {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
         }
-        // Commas / pipes are the file delimiters, so replace them to keep results.txt parseable
         String name = rawName.replace(",", " ").replace("|", " ").replaceAll("\\s+", " ").trim();
         if (name.isEmpty()) {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
         }
 
-        // Validation: Marks in each of the 3 subjects must be between 0 and 100
         if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
             return new OperationResult(false, "Invalid marks. Each mark must be between 0 and 100.", null);
         }
 
-        // Generate sequential ID (ER101, ER102, ...)
-        String id = "ER" + nextIdNumber++;
+        String id = formatId(nextIdNumber++);
         StudentResult newResult = new StudentResult(id, name, m1, m2, m3);
         list.add(newResult);
 
@@ -346,7 +591,7 @@ public class ExamResultManagementSystem {
 
     /**
      * Parses raw mark strings (either 3 separate inputs or space/comma-separated marks in the first input)
-     * and adds the student result using the exact problem specification rules.
+     * and adds the student result.
      */
     public static OperationResult addResultFromInputs(ArrayList<StudentResult> list, String rawName, String s1, String s2, String s3) {
         String nameCheck = (rawName == null) ? "" : rawName.replace(",", " ").replace("|", " ").replaceAll("\\s+", " ").trim();
@@ -360,7 +605,6 @@ public class ExamResultManagementSystem {
 
         int m1, m2, m3;
         try {
-            // Support entering all 3 marks separated by space/comma in the first field (e.g. "80 70 90")
             if (!p1.isEmpty() && p2.isEmpty() && p3.isEmpty() && p1.matches(".*[,\\s]+.*")) {
                 String[] tokens = p1.split("[,\\s]+");
                 if (tokens.length != 3) {
@@ -389,9 +633,6 @@ public class ExamResultManagementSystem {
 
     /**
      * Feature 1: Add Result (Console interaction)
-     * Prompts for student name and marks in 3 subjects.
-     * Validates that each mark is between 0 and 100.
-     * Computes total, percentage, pass/fail status, and assigns sequential ID (starting ER101).
      */
     public static void addResult(Scanner scanner, ArrayList<StudentResult> list) {
         System.out.print("Enter Name: ");
@@ -452,7 +693,7 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Builds the formatted Display All text for both Console and GUI output panels.
+     * Builds the formatted Display All text.
      */
     public static String formatDisplayAll(ArrayList<StudentResult> list) {
         if (list == null || list.isEmpty()) {
@@ -469,7 +710,6 @@ public class ExamResultManagementSystem {
 
     /**
      * Feature 2: Display All
-     * Iterates through the ArrayList and prints all student results.
      */
     public static void displayAll(ArrayList<StudentResult> list) {
         System.out.println(formatDisplayAll(list));
@@ -479,7 +719,7 @@ public class ExamResultManagementSystem {
      * Handles Search UI interaction in Console mode.
      */
     public static void handleSearch(Scanner scanner, ArrayList<StudentResult> list) {
-        System.out.print("Enter Result ID to search: ");
+        System.out.print("Enter ERP ID to search: ");
         if (!scanner.hasNextLine()) return;
         String searchId = scanner.nextLine().trim();
         while (searchId.isEmpty() && scanner.hasNextLine()) {
@@ -500,13 +740,13 @@ public class ExamResultManagementSystem {
      * Time Complexity: O(N), Space Complexity: O(1).
      */
     public static StudentResult searchById(ArrayList<StudentResult> list, String searchId) {
-        if (list == null || searchId == null) {
+        if (list == null || searchId == null || searchId.trim().isEmpty()) {
             return null;
         }
-        String target = searchId.trim();
+        String targetKey = normalizeIdKey(searchId);
         for (int i = 0; i < list.size(); i++) {
             StudentResult current = list.get(i);
-            if (current.getId().equalsIgnoreCase(target)) {
+            if (normalizeIdKey(current.getId()).equals(targetKey)) {
                 return current;
             }
         }
@@ -517,12 +757,12 @@ public class ExamResultManagementSystem {
      * Manual Linear Search returning the index in the ArrayList, or -1 if not found.
      */
     public static int findIndexById(ArrayList<StudentResult> list, String searchId) {
-        if (list == null || searchId == null) {
+        if (list == null || searchId == null || searchId.trim().isEmpty()) {
             return -1;
         }
-        String target = searchId.trim();
+        String targetKey = normalizeIdKey(searchId);
         for (int i = 0; i < list.size(); i++) {
-            if (list.get(i).getId().equalsIgnoreCase(target)) {
+            if (normalizeIdKey(list.get(i).getId()).equals(targetKey)) {
                 return i;
             }
         }
@@ -530,9 +770,9 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Builds the formatted Sort output matching the exact test specification:
-     * 1. ER101 | Kiran Patel | 80.00 | Pass
-     * 2. ER102 | Mitali Roy | 34.33 | Fail
+     * Builds the formatted Sort output:
+     * 1. ERP 10061 | Kiran Patel | 80.00 | Pass
+     * 2. ERP 10062 | Mitali Roy | 34.33 | Fail
      */
     public static String formatSortedResults(ArrayList<StudentResult> list) {
         if (list == null || list.isEmpty()) {
@@ -556,20 +796,14 @@ public class ExamResultManagementSystem {
             return;
         }
 
-        // Sort in-place using our custom sorting algorithm
         sortByPercentage(list);
-
-        // Required Expected Output:
-        // 1. ER101 | Kiran Patel | 80.00 | Pass
-        // 2. ER102 | Mitali Roy | 34.33 | Fail
         System.out.println(formatSortedResults(list));
     }
 
     /**
      * Feature 4: Sort by Percentage (high to low)
      * Manual Bubble Sort Algorithm (no built-in sort methods).
-     * Sorts descending by percentage.
-     * Time Complexity: O(N^2), Space Complexity: O(1).
+     * Time Complexity: O(N^2), Best Case: O(N), Space Complexity: O(1).
      */
     public static void sortByPercentage(ArrayList<StudentResult> list) {
         if (list == null || list.size() <= 1) {
@@ -579,7 +813,6 @@ public class ExamResultManagementSystem {
         for (int i = 0; i < n - 1; i++) {
             boolean swapped = false;
             for (int j = 0; j < n - i - 1; j++) {
-                // Descending order: if previous percentage < next percentage, swap
                 if (list.get(j).getPercentage() < list.get(j + 1).getPercentage()) {
                     StudentResult temp = list.get(j);
                     list.set(j, list.get(j + 1));
@@ -595,7 +828,6 @@ public class ExamResultManagementSystem {
 
     /**
      * Feature 5: File Handling - Load data from file at start.
-     * Robust parser supporting CSV, pipe-delimited, and test case formats.
      */
     public static void loadResultsFromFile(ArrayList<StudentResult> list, String fileName) {
         File file = new File(fileName);
@@ -620,13 +852,27 @@ public class ExamResultManagementSystem {
     }
 
     /**
+     * Normalizes loaded IDs to "ERP <num>" format (upgrading legacy ERxxx records seamlessly).
+     */
+    private static String normalizeLoadedId(String rawId) {
+        if (rawId == null) return formatId(INITIAL_ID_NUMBER);
+        String trimmed = rawId.trim();
+        String digits = trimmed.replaceAll("[^0-9]", "");
+        if (!digits.isEmpty()) {
+            try {
+                int num = Integer.parseInt(digits);
+                if (trimmed.toUpperCase(Locale.US).startsWith("ER") && !trimmed.toUpperCase(Locale.US).startsWith("ERP") && num < 10000) {
+                    num = (INITIAL_ID_NUMBER - 101) + num;
+                }
+                return formatId(num);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return trimmed;
+    }
+
+    /**
      * Parses a single line from results.txt into a StudentResult object.
-     * Handles:
-     * - CSV: ER101,Kiran Patel,80,70,90,240,80.00,Pass
-     * - CSV: ER101,Kiran Patel,80,70,90
-     * - Pipe with metrics: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
-     * - Pipe concise: ER101 | Kiran Patel | 80.00 | Pass
-     * - Pipe with marks: ER101 | Kiran Patel | 80 | 70 | 90
      */
     public static StudentResult parseLine(String line) {
         if (line == null) return null;
@@ -641,7 +887,7 @@ public class ExamResultManagementSystem {
                 }
 
                 if (line.contains("Total:") && line.contains("Percentage:")) {
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int total = 0;
                     double percentage = 0.0;
@@ -664,8 +910,7 @@ public class ExamResultManagementSystem {
                 }
 
                 if (parts.length == 4) {
-                    // ER101 | Kiran Patel | 80.00 | Pass
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     double percentage = Double.parseDouble(parts[2]);
                     String result = parts[3];
@@ -676,8 +921,7 @@ public class ExamResultManagementSystem {
                 }
 
                 if (parts.length == 5) {
-                    // ER101 | Kiran Patel | 80 | 70 | 90
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int m1 = Integer.parseInt(parts[2]);
                     int m2 = Integer.parseInt(parts[3]);
@@ -686,8 +930,7 @@ public class ExamResultManagementSystem {
                 }
 
                 if (parts.length >= 8) {
-                    // ER101 | Kiran Patel | 80 | 70 | 90 | 240 | 80.00 | Pass
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int m1 = Integer.parseInt(parts[2]);
                     int m2 = Integer.parseInt(parts[3]);
@@ -704,16 +947,14 @@ public class ExamResultManagementSystem {
                 }
 
                 if (parts.length == 5) {
-                    // ER101,Kiran Patel,80,70,90
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int m1 = Integer.parseInt(parts[2]);
                     int m2 = Integer.parseInt(parts[3]);
                     int m3 = Integer.parseInt(parts[4]);
                     return new StudentResult(id, name, m1, m2, m3);
                 } else if (parts.length >= 8) {
-                    // ER101,Kiran Patel,80,70,90,240,80.00,Pass
-                    String id = parts[0];
+                    String id = normalizeLoadedId(parts[0]);
                     String name = parts[1];
                     int m1 = Integer.parseInt(parts[2]);
                     int m2 = Integer.parseInt(parts[3]);
@@ -725,7 +966,6 @@ public class ExamResultManagementSystem {
                 }
             }
         } catch (Exception ignored) {
-            // Ignore malformed line and proceed
         }
 
         return null;
@@ -754,7 +994,7 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Clears all records in memory, deletes/clears the saved file, and resets nextIdNumber back to 101 (ER101).
+     * Clears all records in memory, deletes/clears the saved file, and resets nextIdNumber back to 10061 (ERP 10061).
      */
     public static void clearAllResults(ArrayList<StudentResult> list, String fileName) {
         if (list != null) {
@@ -773,61 +1013,135 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Finds the maximum ID sequence number and updates nextIdNumber.
-     * Ensures IDs start at ER101, and continue sequentially (ER102, ER103, ...).
+     * Finds the maximum ERP ID sequence number and updates nextIdNumber.
+     * Ensures IDs start at ERP 10061, and continue sequentially (ERP 10062, ERP 10063, ...).
      */
     public static void updateNextIdNumber(ArrayList<StudentResult> list) {
-        int maxId = 100;
+        int maxId = INITIAL_ID_NUMBER - 1;
         if (list != null) {
             for (int i = 0; i < list.size(); i++) {
                 String id = list.get(i).getId();
-                if (id != null && id.toUpperCase().startsWith("ER")) {
-                    try {
-                        int num = Integer.parseInt(id.substring(2).trim());
-                        if (num > maxId) {
-                            maxId = num;
+                if (id != null) {
+                    String digits = id.replaceAll("[^0-9]", "");
+                    if (!digits.isEmpty()) {
+                        try {
+                            int num = Integer.parseInt(digits);
+                            if (num > maxId) {
+                                maxId = num;
+                            }
+                        } catch (NumberFormatException ignored) {
                         }
-                    } catch (NumberFormatException ignored) {}
+                    }
                 }
             }
         }
         nextIdNumber = maxId + 1;
     }
 
-    /**
-     * Getter for nextIdNumber (useful for testing and GUI display).
-     */
     public static int getNextIdNumber() {
         return nextIdNumber;
     }
 
-    /**
-     * Setter for nextIdNumber (useful for testing reset).
-     */
     public static void setNextIdNumber(int val) {
         nextIdNumber = val;
     }
 }
 
 /**
- * Pure Java Swing Desktop GUI for PS No. 48: Exam Result Management System.
- * Strictly implements the exact menu features, rules, and output formats from the specification:
- *   1 - Add Result (3 subjects out of 100, Pass >= 40.00%, IDs starting ER101)
- *   2 - Display All
- *   3 - Search by ID (uses custom Linear Search)
- *   4 - Sort by Percentage (high to low) (uses custom Bubble Sort)
- *   5 - Save & Exit (loads from and saves to results.txt)
+ * Custom anti-aliased rounded card panel for smooth desktop rendering.
+ */
+class RoundedCardPanel extends JPanel {
+    private final Color fillColor;
+    private final Color strokeColor;
+    private final int radius;
+
+    public RoundedCardPanel(Color fillColor, Color strokeColor, int radius) {
+        this.fillColor = fillColor;
+        this.strokeColor = strokeColor;
+        this.radius = radius;
+        setOpaque(false);
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        int w = getWidth();
+        int h = getHeight();
+        g2.setColor(fillColor);
+        g2.fillRoundRect(0, 0, w - 1, h - 1, radius, radius);
+        g2.setColor(strokeColor);
+        g2.drawRoundRect(0, 0, w - 1, h - 1, radius, radius);
+        g2.dispose();
+        super.paintComponent(g);
+    }
+}
+
+/**
+ * Custom anti-aliased smooth hover button.
+ */
+class SmoothButton extends JButton {
+    private final Color baseBg;
+    private final Color hoverBg;
+    private boolean hovered = false;
+
+    public SmoothButton(String text, Color baseBg, Color fg) {
+        super(text);
+        this.baseBg = baseBg;
+        this.hoverBg = brighten(baseBg, 0.10f);
+        setForeground(fg);
+        setFont(new Font("SansSerif", Font.BOLD, 12));
+        setFocusPainted(false);
+        setBorderPainted(false);
+        setContentAreaFilled(false);
+        setOpaque(false);
+        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        setBorder(new EmptyBorder(9, 15, 9, 15));
+
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                hovered = true;
+                repaint();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                hovered = false;
+                repaint();
+            }
+        });
+    }
+
+    private static Color brighten(Color c, float factor) {
+        int r = Math.min(255, Math.round(c.getRed() + (255 - c.getRed()) * factor));
+        int g = Math.min(255, Math.round(c.getGreen() + (255 - c.getGreen()) * factor));
+        int b = Math.min(255, Math.round(c.getBlue() + (255 - c.getBlue()) * factor));
+        return new Color(r, g, b);
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(getModel().isPressed() ? baseBg.darker() : (hovered ? hoverBg : baseBg));
+        g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+        g2.dispose();
+        super.paintComponent(g);
+    }
+}
+
+/**
+ * Smooth, modernized Java Swing Desktop GUI for Exam Result Management System.
  */
 class ExamResultGUI extends JFrame {
-    // Palette
-    private static final Color BG_APP = new Color(244, 247, 251);
+    private static final Color BG_APP = new Color(241, 245, 249);
     private static final Color BG_CARD = Color.WHITE;
     private static final Color HEADER_BG = new Color(15, 23, 42);
     private static final Color PRIMARY = new Color(37, 99, 235);
-    private static final Color PRIMARY_DARK = new Color(29, 78, 216);
     private static final Color INDIGO = new Color(79, 70, 229);
     private static final Color TEAL = new Color(13, 148, 136);
-    private static final Color SLATE_BTN = new Color(71, 85, 105);
+    private static final Color SLATE_BTN = new Color(51, 65, 85);
     private static final Color DANGER_BTN = new Color(185, 28, 28);
     private static final Color BORDER_COLOR = new Color(226, 232, 240);
     private static final Color TEXT_MAIN = new Color(15, 23, 42);
@@ -846,23 +1160,18 @@ class ExamResultGUI extends JFrame {
     private final ArrayList<StudentResult> resultsList;
     private final String fileName;
 
-    // Header summary labels
     private JLabel nextIdStatLabel;
     private JLabel totalRecordsStatLabel;
     private JLabel passCountStatLabel;
     private JLabel failCountStatLabel;
 
-    // Form inputs (1 - Add Result)
     private JLabel formNextIdBadge;
     private JTextField nameField;
     private JTextField mark1Field;
     private JTextField mark2Field;
     private JTextField mark3Field;
-
-    // Search input (3 - Search by ID)
     private JTextField searchIdField;
 
-    // Status banner & Table & Console log
     private JPanel statusBannerPanel;
     private JLabel statusBannerLabel;
     private JLabel tableModeLabel;
@@ -871,13 +1180,13 @@ class ExamResultGUI extends JFrame {
     private JTextArea outputLogArea;
 
     public ExamResultGUI(ArrayList<StudentResult> resultsList, String fileName) {
-        super("PS No. 48 — Exam Result Management System");
+        super("Exam Result Management System");
         this.resultsList = resultsList;
         this.fileName = fileName;
 
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setMinimumSize(new Dimension(1040, 720));
-        setSize(1120, 770);
+        setMinimumSize(new Dimension(1060, 720));
+        setSize(1140, 780);
         setLocationRelativeTo(null);
 
         addWindowListener(new WindowAdapter() {
@@ -893,17 +1202,14 @@ class ExamResultGUI extends JFrame {
         root.add(buildMainBodyPanel(), BorderLayout.CENTER);
         setContentPane(root);
 
-        // Initial load display
         refreshTable(false);
         updateStats();
+        String nextErp = ExamResultManagementSystem.formatId(ExamResultManagementSystem.getNextIdNumber());
         if (resultsList.isEmpty()) {
-            setBanner("Ready. First Result ID is ER" + ExamResultManagementSystem.getNextIdNumber()
-                    + " | Each subject out of 100 | Pass percentage: 40.00", false, true);
-            appendLog("Loaded " + fileName + ": 0 existing records. Next ID: ER"
-                    + ExamResultManagementSystem.getNextIdNumber());
+            setBanner("Ready. First ERP ID is " + nextErp + " | Each subject out of 100 | Pass percentage: 40.00", false, true);
+            appendLog("Loaded " + fileName + ": 0 existing records. Next ID: " + nextErp);
         } else {
-            setBanner("Loaded " + resultsList.size() + " record(s) from " + fileName
-                    + ". Next Result ID: ER" + ExamResultManagementSystem.getNextIdNumber(), true, false);
+            setBanner("Loaded " + resultsList.size() + " record(s) from " + fileName + ". Next ID: " + nextErp, true, false);
             appendLog("Loaded " + resultsList.size() + " record(s) from " + fileName + ":");
             appendLog(ExamResultManagementSystem.formatDisplayAll(resultsList));
         }
@@ -914,7 +1220,6 @@ class ExamResultGUI extends JFrame {
         header.setBackground(HEADER_BG);
         header.setBorder(new EmptyBorder(16, 24, 16, 24));
 
-        // Left title block
         JPanel titleBox = new JPanel();
         titleBox.setOpaque(false);
         titleBox.setLayout(new BoxLayout(titleBox, BoxLayout.Y_AXIS));
@@ -931,16 +1236,15 @@ class ExamResultGUI extends JFrame {
         titleBox.add(Box.createVerticalStrut(4));
         titleBox.add(subtitle);
 
-        // Right stat cards
         JPanel statsPanel = new JPanel(new GridLayout(1, 4, 10, 0));
         statsPanel.setOpaque(false);
 
-        nextIdStatLabel = new JLabel("ER101", SwingConstants.CENTER);
+        nextIdStatLabel = new JLabel("ERP 10061", SwingConstants.CENTER);
         totalRecordsStatLabel = new JLabel("0", SwingConstants.CENTER);
         passCountStatLabel = new JLabel("0", SwingConstants.CENTER);
         failCountStatLabel = new JLabel("0", SwingConstants.CENTER);
 
-        statsPanel.add(createHeaderStatCard("NEXT ID", nextIdStatLabel, new Color(96, 165, 250)));
+        statsPanel.add(createHeaderStatCard("NEXT ERP", nextIdStatLabel, new Color(96, 165, 250)));
         statsPanel.add(createHeaderStatCard("RECORDS", totalRecordsStatLabel, Color.WHITE));
         statsPanel.add(createHeaderStatCard("PASS", passCountStatLabel, new Color(74, 222, 128)));
         statsPanel.add(createHeaderStatCard("FAIL", failCountStatLabel, new Color(248, 113, 113)));
@@ -951,17 +1255,15 @@ class ExamResultGUI extends JFrame {
     }
 
     private JPanel createHeaderStatCard(String caption, JLabel valueLabel, Color valueColor) {
-        JPanel card = new JPanel(new BorderLayout(0, 2));
-        card.setBackground(new Color(30, 41, 59));
-        card.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(new Color(51, 65, 85), 1, true),
-                new EmptyBorder(6, 14, 6, 14)));
+        RoundedCardPanel card = new RoundedCardPanel(new Color(30, 41, 59), new Color(51, 65, 85), 12);
+        card.setLayout(new BorderLayout(0, 2));
+        card.setBorder(new EmptyBorder(6, 14, 6, 14));
 
         JLabel cap = new JLabel(caption, SwingConstants.CENTER);
         cap.setFont(new Font("SansSerif", Font.BOLD, 10));
         cap.setForeground(new Color(148, 163, 184));
 
-        valueLabel.setFont(new Font("SansSerif", Font.BOLD, 16));
+        valueLabel.setFont(new Font("SansSerif", Font.BOLD, 15));
         valueLabel.setForeground(valueColor);
 
         card.add(cap, BorderLayout.NORTH);
@@ -974,7 +1276,6 @@ class ExamResultGUI extends JFrame {
         body.setBackground(BG_APP);
         body.setBorder(new EmptyBorder(14, 18, 16, 18));
 
-        // Top live feedback banner (displays the exact expected output line immediately)
         statusBannerPanel = new JPanel(new BorderLayout());
         statusBannerPanel.setBackground(BANNER_INFO_BG);
         statusBannerPanel.setBorder(BorderFactory.createCompoundBorder(
@@ -988,7 +1289,6 @@ class ExamResultGUI extends JFrame {
 
         body.add(statusBannerPanel, BorderLayout.NORTH);
 
-        // Left controls + Right table/output split
         JPanel leftSidebar = buildLeftSidebar();
         JSplitPane rightSplit = buildRightSplitPane();
 
@@ -1005,7 +1305,7 @@ class ExamResultGUI extends JFrame {
         JPanel sidebar = new JPanel();
         sidebar.setOpaque(false);
         sidebar.setLayout(new BoxLayout(sidebar, BoxLayout.Y_AXIS));
-        sidebar.setPreferredSize(new Dimension(330, 520));
+        sidebar.setPreferredSize(new Dimension(336, 540));
 
         sidebar.add(buildAddResultCard());
         sidebar.add(Box.createVerticalStrut(12));
@@ -1025,19 +1325,18 @@ class ExamResultGUI extends JFrame {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
 
-        // Title + Next ID badge
         JPanel topRow = new JPanel(new BorderLayout());
         topRow.setOpaque(false);
         JLabel sectionTitle = new JLabel("1. Add Result");
         sectionTitle.setFont(new Font("SansSerif", Font.BOLD, 15));
         sectionTitle.setForeground(TEXT_MAIN);
 
-        formNextIdBadge = new JLabel("ID: ER101");
+        formNextIdBadge = new JLabel("ERP 10061");
         formNextIdBadge.setFont(new Font("Monospaced", Font.BOLD, 12));
         formNextIdBadge.setForeground(PRIMARY);
         formNextIdBadge.setBorder(BorderFactory.createCompoundBorder(
                 new LineBorder(new Color(191, 219, 254), 1, true),
-                new EmptyBorder(2, 8, 2, 8)));
+                new EmptyBorder(3, 9, 3, 9)));
         formNextIdBadge.setOpaque(true);
         formNextIdBadge.setBackground(new Color(239, 246, 255));
 
@@ -1049,7 +1348,6 @@ class ExamResultGUI extends JFrame {
         gbc.gridwidth = 3;
         card.add(topRow, gbc);
 
-        // Student Name label + field
         gbc.gridy = 1;
         gbc.insets = new Insets(8, 4, 2, 4);
         card.add(createFieldLabel("Student Name"), gbc);
@@ -1060,21 +1358,16 @@ class ExamResultGUI extends JFrame {
         gbc.insets = new Insets(0, 4, 6, 4);
         card.add(nameField, gbc);
 
-        // Marks label
         gbc.gridy = 3;
         gbc.insets = new Insets(4, 4, 2, 4);
         card.add(createFieldLabel("Marks in 3 Subjects (0 - 100 each)"), gbc);
 
-        // 3 subject fields side by side
         mark1Field = createStyledTextField("");
         mark2Field = createStyledTextField("");
         mark3Field = createStyledTextField("");
         mark1Field.setHorizontalAlignment(JTextField.CENTER);
         mark2Field.setHorizontalAlignment(JTextField.CENTER);
         mark3Field.setHorizontalAlignment(JTextField.CENTER);
-        mark1Field.setToolTipText("Subject 1 (0-100) — or paste all 3 marks e.g. 80 70 90");
-        mark2Field.setToolTipText("Subject 2 (0-100)");
-        mark3Field.setToolTipText("Subject 3 (0-100)");
 
         JPanel marksGrid = new JPanel(new GridLayout(2, 3, 8, 2));
         marksGrid.setOpaque(false);
@@ -1089,12 +1382,11 @@ class ExamResultGUI extends JFrame {
         gbc.insets = new Insets(0, 4, 8, 4);
         card.add(marksGrid, gbc);
 
-        // Buttons row
         JPanel btnRow = new JPanel(new BorderLayout(8, 0));
         btnRow.setOpaque(false);
 
         JButton addBtn = createStyledButton("1 - Add Result", PRIMARY, Color.WHITE);
-        JButton clearBtn = createStyledButton("Clear", new Color(241, 245, 249), TEXT_MAIN);
+        JButton clearBtn = createStyledButton("Clear", new Color(226, 232, 240), TEXT_MAIN);
 
         ActionListener submitAddAction = e -> onAddResult();
         addBtn.addActionListener(submitAddAction);
@@ -1128,7 +1420,8 @@ class ExamResultGUI extends JFrame {
         gbc.weightx = 1.0;
         gbc.gridx = 0;
 
-        JLabel title = new JLabel("3. Search by ID (Linear Search)");
+        // Clean title without "(Linear Search)"
+        JLabel title = new JLabel("3. Search by ID");
         title.setFont(new Font("SansSerif", Font.BOLD, 15));
         title.setForeground(TEXT_MAIN);
         gbc.gridy = 0;
@@ -1137,7 +1430,7 @@ class ExamResultGUI extends JFrame {
 
         gbc.gridy = 1;
         gbc.insets = new Insets(0, 4, 2, 4);
-        card.add(createFieldLabel("Enter Result ID (e.g. ER101)"), gbc);
+        card.add(createFieldLabel("Enter ERP ID (e.g. ERP 10061)"), gbc);
 
         JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         searchRow.setOpaque(false);
@@ -1169,7 +1462,7 @@ class ExamResultGUI extends JFrame {
         JButton displayAllBtn = createStyledButton("2 - Display All Results", SLATE_BTN, Color.WHITE);
         JButton sortBtn = createStyledButton("4 - Sort by Percentage (High to Low)", INDIGO, Color.WHITE);
         JButton saveBtn = createStyledButton("Save Now to " + fileName, new Color(22, 163, 74), Color.WHITE);
-        JButton clearAllBtn = createStyledButton("Clear All Saved Records (Reset ER101)", new Color(217, 119, 6), Color.WHITE);
+        JButton clearAllBtn = createStyledButton("Clear All Saved Records", new Color(217, 119, 6), Color.WHITE);
         JButton exitBtn = createStyledButton("5 - Save & Exit", DANGER_BTN, Color.WHITE);
 
         displayAllBtn.addActionListener(e -> onDisplayAll());
@@ -1189,14 +1482,14 @@ class ExamResultGUI extends JFrame {
     }
 
     private JSplitPane buildRightSplitPane() {
-        // Top: ArrayList JTable card
         JPanel tableCard = createCardPanel();
         tableCard.setLayout(new BorderLayout(0, 8));
 
         JPanel tableHeaderBar = new JPanel(new BorderLayout());
         tableHeaderBar.setOpaque(false);
 
-        JLabel tableTitle = new JLabel("Student Exam Results (ArrayList<StudentResult>)");
+        // Clean title without "(ArrayList<StudentResult>)"
+        JLabel tableTitle = new JLabel("Student Exam Results");
         tableTitle.setFont(new Font("SansSerif", Font.BOLD, 15));
         tableTitle.setForeground(TEXT_MAIN);
 
@@ -1208,7 +1501,7 @@ class ExamResultGUI extends JFrame {
         tableHeaderBar.add(tableModeLabel, BorderLayout.EAST);
 
         String[] columns = {
-            "#", "Result ID", "Student Name", "Sub 1", "Sub 2", "Sub 3", "Total (/300)", "Percentage", "Result"
+            "#", "ERP ID", "Student Name", "Sub 1", "Sub 2", "Sub 3", "Total (/300)", "Percentage", "Result"
         };
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
@@ -1218,9 +1511,8 @@ class ExamResultGUI extends JFrame {
         };
 
         resultsTable = new JTable(tableModel);
-        // Requirement 3: Strictly disable any built-in JTable sorting — all sorting uses sortByPercentage()!
         resultsTable.setAutoCreateRowSorter(false);
-        resultsTable.setRowHeight(30);
+        resultsTable.setRowHeight(32);
         resultsTable.setFont(new Font("SansSerif", Font.PLAIN, 13));
         resultsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultsTable.setGridColor(new Color(241, 245, 249));
@@ -1233,10 +1525,9 @@ class ExamResultGUI extends JFrame {
         th.setFont(new Font("SansSerif", Font.BOLD, 12));
         th.setBackground(new Color(241, 245, 249));
         th.setForeground(TEXT_MAIN);
-        th.setPreferredSize(new Dimension(th.getPreferredSize().width, 34));
+        th.setPreferredSize(new Dimension(th.getPreferredSize().width, 36));
 
-        // Column widths & alignment
-        int[] widths = {38, 82, 165, 58, 58, 58, 88, 90, 76};
+        int[] widths = {38, 96, 165, 58, 58, 58, 88, 90, 76};
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
 
@@ -1247,7 +1538,6 @@ class ExamResultGUI extends JFrame {
             }
         }
 
-        // Pass / Fail badge cell renderer on column 8
         resultsTable.getColumnModel().getColumn(8).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(
@@ -1276,19 +1566,18 @@ class ExamResultGUI extends JFrame {
         tableCard.add(tableHeaderBar, BorderLayout.NORTH);
         tableCard.add(tableScroll, BorderLayout.CENTER);
 
-        // Bottom: Exact specification output log
         JPanel logCard = createCardPanel();
         logCard.setLayout(new BorderLayout(0, 6));
 
         JPanel logHeader = new JPanel(new BorderLayout());
         logHeader.setOpaque(false);
-        JLabel logTitle = new JLabel("Specification Output Console (Exact Expected Output Format)");
+        JLabel logTitle = new JLabel("System Output Console");
         logTitle.setFont(new Font("SansSerif", Font.BOLD, 13));
         logTitle.setForeground(TEXT_MAIN);
 
-        JButton clearLogBtn = createStyledButton("Clear Log", new Color(241, 245, 249), TEXT_MUTED);
+        JButton clearLogBtn = createStyledButton("Clear Log", new Color(226, 232, 240), TEXT_MUTED);
         clearLogBtn.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        clearLogBtn.setBorder(new EmptyBorder(4, 10, 4, 10));
+        clearLogBtn.setBorder(new EmptyBorder(5, 10, 5, 10));
         clearLogBtn.addActionListener(e -> outputLogArea.setText(""));
 
         logHeader.add(logTitle, BorderLayout.WEST);
@@ -1316,10 +1605,6 @@ class ExamResultGUI extends JFrame {
         return split;
     }
 
-    // =========================================================================
-    // Event Handlers — Directly invoking ExamResultManagementSystem methods
-    // =========================================================================
-
     private void onAddResult() {
         String rawName = nameField.getText();
         String s1 = mark1Field.getText();
@@ -1336,14 +1621,12 @@ class ExamResultGUI extends JFrame {
             updateStats();
             setBanner(outcome.getMessage(), true, false);
 
-            // Select the newly added row
             int lastRow = resultsList.size() - 1;
             if (lastRow >= 0) {
                 resultsTable.setRowSelectionInterval(lastRow, lastRow);
                 resultsTable.scrollRectToVisible(resultsTable.getCellRect(lastRow, 0, true));
             }
 
-            // Reset inputs for next entry
             nameField.setText("");
             mark1Field.setText("");
             mark2Field.setText("");
@@ -1376,13 +1659,12 @@ class ExamResultGUI extends JFrame {
     private void onSearchById() {
         String query = searchIdField.getText().trim();
         if (query.isEmpty()) {
-            String msg = "Please enter a Result ID to search (e.g. ER101).";
+            String msg = "Please enter an ERP ID to search (e.g. ERP 10061).";
             setBanner(msg, false, false);
             return;
         }
 
         appendLog("> Menu Option 3 (Search by ID: " + query + ")");
-        // Uses our custom Linear Search method
         StudentResult found = ExamResultManagementSystem.searchById(resultsList, query);
         if (found != null) {
             String exactMsg = "Found: " + found.toFullDetailString();
@@ -1412,7 +1694,6 @@ class ExamResultGUI extends JFrame {
             return;
         }
 
-        // Uses our custom Bubble Sort method (in-place, descending by percentage)
         ExamResultManagementSystem.sortByPercentage(resultsList);
         ExamResultManagementSystem.saveResultsToFile(resultsList, fileName);
 
@@ -1432,9 +1713,10 @@ class ExamResultGUI extends JFrame {
     }
 
     private void onClearAllRecords() {
+        String defaultId = ExamResultManagementSystem.formatId(ExamResultManagementSystem.INITIAL_ID_NUMBER);
         if (resultsList.isEmpty() && !(new File(fileName).exists())
-                && ExamResultManagementSystem.getNextIdNumber() == 101) {
-            String msg = "No saved records to clear. Next Result ID is already ER101.";
+                && ExamResultManagementSystem.getNextIdNumber() == ExamResultManagementSystem.INITIAL_ID_NUMBER) {
+            String msg = "No saved records to clear. Next ERP ID is already " + defaultId + ".";
             appendLog("> " + msg);
             setBanner(msg, false, true);
             return;
@@ -1443,7 +1725,7 @@ class ExamResultGUI extends JFrame {
         int choice = JOptionPane.showConfirmDialog(
                 this,
                 "Delete all " + resultsList.size() + " saved record(s) from " + fileName
-                        + " and reset the next Result ID back to ER101?",
+                        + " and reset the next ERP ID back to " + defaultId + "?",
                 "Confirm Clear All Records",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
@@ -1454,7 +1736,7 @@ class ExamResultGUI extends JFrame {
             refreshTable(false);
             updateStats();
             tableModeLabel.setText("Showing 0 record(s)");
-            String msg = "Cleared all saved records from " + fileName + ". Next Result ID reset to ER101.";
+            String msg = "Cleared all saved records from " + fileName + ". Next ERP ID reset to " + defaultId + ".";
             appendLog("> " + msg);
             setBanner(msg, true, false);
             nameField.requestFocusInWindow();
@@ -1466,10 +1748,6 @@ class ExamResultGUI extends JFrame {
         dispose();
         System.exit(0);
     }
-
-    // =========================================================================
-    // UI Helpers
-    // =========================================================================
 
     private void refreshTable(boolean sortedView) {
         tableModel.setRowCount(0);
@@ -1488,16 +1766,16 @@ class ExamResultGUI extends JFrame {
             });
         }
         if (sortedView) {
-            tableModeLabel.setText("Sorted by Percentage: High to Low (Custom Bubble Sort)");
+            tableModeLabel.setText("Sorted by Percentage: High to Low");
         } else {
             tableModeLabel.setText("Showing " + resultsList.size() + " record(s)");
         }
     }
 
     private void updateStats() {
-        String nextId = "ER" + ExamResultManagementSystem.getNextIdNumber();
+        String nextId = ExamResultManagementSystem.formatId(ExamResultManagementSystem.getNextIdNumber());
         nextIdStatLabel.setText(nextId);
-        formNextIdBadge.setText("ID: " + nextId);
+        formNextIdBadge.setText(nextId);
         totalRecordsStatLabel.setText(String.valueOf(resultsList.size()));
 
         int passCount = 0;
@@ -1546,11 +1824,8 @@ class ExamResultGUI extends JFrame {
     }
 
     private JPanel createCardPanel() {
-        JPanel card = new JPanel();
-        card.setBackground(BG_CARD);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(BORDER_COLOR, 1, true),
-                new EmptyBorder(12, 14, 12, 14)));
+        RoundedCardPanel card = new RoundedCardPanel(BG_CARD, BORDER_COLOR, 16);
+        card.setBorder(new EmptyBorder(13, 15, 13, 15));
         return card;
     }
 
@@ -1575,21 +1850,11 @@ class ExamResultGUI extends JFrame {
         tf.setBackground(new Color(248, 250, 252));
         tf.setBorder(BorderFactory.createCompoundBorder(
                 new LineBorder(new Color(203, 213, 225), 1, true),
-                new EmptyBorder(6, 9, 6, 9)));
+                new EmptyBorder(7, 10, 7, 10)));
         return tf;
     }
 
     private JButton createStyledButton(String text, Color bg, Color fg) {
-        JButton btn = new JButton(text);
-        btn.setFont(new Font("SansSerif", Font.BOLD, 12));
-        btn.setBackground(bg);
-        btn.setForeground(fg);
-        btn.setOpaque(true);
-        btn.setFocusPainted(false);
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(bg.darker(), 1, true),
-                new EmptyBorder(8, 14, 8, 14)));
-        return btn;
+        return new SmoothButton(text, bg, fg);
     }
 }

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Exam Result Management System</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="ambient-mesh"></div>
+
+  <!-- Top Navigation Header -->
+  <header class="app-header">
+    <div class="brand-block">
+      <div class="brand-title-row">
+        <h1>Exam Result Management System</h1>
+        <span class="pill-tag">PS No. 48</span>
+      </div>
+      <p class="brand-subtitle">3 Subjects (/100 each) &nbsp;•&nbsp; Pass &ge; 40.00% &nbsp;•&nbsp; Persistent Storage: <code>results.txt</code></p>
+    </div>
+
+    <div class="header-right">
+      <div class="stat-strip">
+        <div class="stat-box stat-erp">
+          <span class="stat-label">NEXT ERP</span>
+          <span class="stat-value" id="statNextErp">ERP 10061</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">RECORDS</span>
+          <span class="stat-value" id="statTotal">0</span>
+        </div>
+        <div class="stat-box stat-pass">
+          <span class="stat-label">PASS</span>
+          <span class="stat-value" id="statPass">0</span>
+        </div>
+        <div class="stat-box stat-fail">
+          <span class="stat-label">FAIL</span>
+          <span class="stat-value" id="statFail">0</span>
+        </div>
+      </div>
+      <button class="theme-btn" id="themeToggleBtn" type="button" title="Toggle Dark / Light Mode">🌙 Dark</button>
+    </div>
+  </header>
+
+  <!-- Main Content Shell -->
+  <main class="app-shell">
+    <!-- Live Feedback Banner -->
+    <div class="status-banner info" id="statusBanner" role="status">
+      <span class="status-dot"></span>
+      <span id="statusBannerText">Ready. First ERP ID is ERP 10061 | Each subject out of 100 | Pass percentage: 40.00</span>
+    </div>
+
+    <div class="workspace-grid">
+      <!-- Left Control Column -->
+      <aside class="sidebar-col">
+        <!-- 1. Add Result -->
+        <section class="panel-card">
+          <div class="card-header-row">
+            <h2>1. Add Result</h2>
+            <span class="erp-badge" id="formErpBadge">ERP 10061</span>
+          </div>
+
+          <form id="addResultForm" autocomplete="off">
+            <label class="field-label" for="studentName">Student Name</label>
+            <input
+              class="text-input"
+              id="studentName"
+              type="text"
+              placeholder="e.g. Kiran Patel"
+              required
+            />
+
+            <label class="field-label" style="margin-top:12px;">Marks in 3 Subjects (0 – 100 each)</label>
+            <div class="marks-grid">
+              <div class="mark-cell">
+                <span>Subject 1</span>
+                <input class="text-input mark-input" id="mark1" type="text" inputmode="numeric" placeholder="0-100" />
+              </div>
+              <div class="mark-cell">
+                <span>Subject 2</span>
+                <input class="text-input mark-input" id="mark2" type="text" inputmode="numeric" placeholder="0-100" />
+              </div>
+              <div class="mark-cell">
+                <span>Subject 3</span>
+                <input class="text-input mark-input" id="mark3" type="text" inputmode="numeric" placeholder="0-100" />
+              </div>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn btn-primary" type="submit" id="addSubmitBtn">1 – Add Result</button>
+              <button class="btn btn-ghost" type="button" id="clearFormBtn">Clear</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- 3. Search by ID -->
+        <section class="panel-card">
+          <div class="card-header-row">
+            <h2>3. Search by ID</h2>
+          </div>
+          <form id="searchForm" autocomplete="off">
+            <label class="field-label" for="searchIdInput">Enter ERP ID (e.g. ERP 10061)</label>
+            <div class="search-row">
+              <input
+                class="text-input"
+                id="searchIdInput"
+                type="text"
+                placeholder="ERP 10061"
+              />
+              <button class="btn btn-teal" type="submit">3 – Search</button>
+            </div>
+          </form>
+        </section>
+
+        <!-- Menu Operations & Persistence -->
+        <section class="panel-card">
+          <div class="card-header-row" style="margin-bottom:10px;">
+            <h2>Menu Operations &amp; Persistence</h2>
+          </div>
+          <div class="ops-stack">
+            <button class="btn btn-slate" type="button" id="displayAllBtn">2 – Display All Results</button>
+            <button class="btn btn-indigo" type="button" id="sortBtn">4 – Sort by Percentage (High to Low)</button>
+            <button class="btn btn-emerald" type="button" id="downloadTxtBtn">Export results.txt</button>
+            <button class="btn btn-amber" type="button" id="clearAllBtn">Clear All Saved Records</button>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Right Data & Console Column -->
+      <div class="content-col">
+        <!-- Student Exam Results Table -->
+        <section class="panel-card table-card">
+          <div class="card-header-row">
+            <h2>Student Exam Results</h2>
+            <span class="muted-meta" id="tableMetaLabel">Showing 0 record(s)</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="results-table">
+              <thead>
+                <tr>
+                  <th class="center" style="width:48px;">#</th>
+                  <th class="center" style="width:120px;">ERP ID</th>
+                  <th>Student Name</th>
+                  <th class="center" style="width:76px;">Sub 1</th>
+                  <th class="center" style="width:76px;">Sub 2</th>
+                  <th class="center" style="width:76px;">Sub 3</th>
+                  <th class="center" style="width:105px;">Total (/300)</th>
+                  <th class="center" style="width:108px;">Percentage</th>
+                  <th class="center" style="width:94px;">Result</th>
+                </tr>
+              </thead>
+              <tbody id="resultsTableBody">
+                <tr class="empty-row">
+                  <td colspan="9">No student results added yet. Enter a student's marks on the left to generate <strong>ERP 10061</strong>.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- System Output Console -->
+        <section class="panel-card console-card">
+          <div class="card-header-row" style="margin-bottom:8px;">
+            <h2>System Output Console</h2>
+            <button class="btn-mini" type="button" id="clearConsoleBtn">Clear Log</button>
+          </div>
+          <pre class="console-box" id="consoleBox"></pre>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- Confirmation Modal for Clear All Saved Records -->
+  <div class="modal-backdrop" id="confirmModal" aria-hidden="true">
+    <div class="modal-dialog">
+      <h3>Clear All Saved Records?</h3>
+      <p>This will remove all saved student records and reset the next ERP ID back to <strong>ERP 10061</strong>.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" id="cancelClearBtn">Cancel</button>
+        <button class="btn btn-danger" type="button" id="confirmClearBtn">Yes, Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

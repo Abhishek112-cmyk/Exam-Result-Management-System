@@ -20,3 +20,9 @@ Thumbs.db
 
 # Runtime data (created by the program)
 results.txt
+
+# Netlify & Node dependencies
+.netlify
+node_modules
+package-lock.json
+

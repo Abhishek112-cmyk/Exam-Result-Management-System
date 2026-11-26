@@ -1,0 +1,14 @@
+{
+  "name": "exam-result-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Exam Result Management System (PS No. 48) - Java & Netlify Full-Stack App",
+  "scripts": {
+    "build": "echo 'Frontend ready in public/ and Netlify Functions ready in netlify/functions/'"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "@netlify/functions": "^3.0.0"
+  }
+}

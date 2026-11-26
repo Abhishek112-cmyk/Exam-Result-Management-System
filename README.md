@@ -1,267 +1,129 @@
 # PS No. 48: Exam Result Management System
 
-A robust console-based application implemented in Java to manage student exam results using custom Data Structures and Algorithms (ArrayList, Custom In-Place Sorting, and Custom Linear Searching), Object-Oriented Design, and Persistent File Handling.
+A full-stack and desktop Exam Result Management System built around custom Data Structures and Algorithms (`ArrayList`, manual **Linear Search**, and manual **Adaptive Bubble Sort**), Object-Oriented Design, and persistent storage — runnable as a **Netlify Cloud Web App**, a **Local Java Web Server**, a **Java Swing Desktop GUI**, or an **Interactive Console CLI**.
 
 ---
 
 ## 📋 Table of Contents
 1. [Problem Statement](#-problem-statement)
-2. [Bare Minimum Requirements](#-bare-minimum-requirements)
+2. [Key Features & Modes](#-key-features--modes)
 3. [Key Concepts & Algorithms](#-key-concepts--algorithms)
 4. [Project Structure](#-project-structure)
-5. [Class Design & Architecture](#-class-design--architecture)
-6. [Compilation & Execution](#-compilation--execution)
+5. [Local Execution Guide](#-local-execution-guide)
+6. [Deploy to Netlify (Cloud Web App)](#-deploy-to-netlify-cloud-web-app)
 7. [Test Cases & Expected Outputs](#-test-cases--expected-outputs)
-8. [Edge Cases Handled](#-edge-cases-handled)
-9. [GitHub Submission Guide](#-github-submission-guide)
 
 ---
 
 ## 🎯 Problem Statement
-Develop a console application to manage exam results:
-- **Add student results** with marks in three subjects (each out of 100).
-- **Display all results** currently stored in memory.
-- **Search by result ID** using custom searching logic.
-- **Sort results by percentage (high to low)** using custom sorting logic.
-- **File Persistence**: Load data from `results.txt` at program start, and automatically save data on exit.
-- **Result ID Generation**: The first result ID generated is `ER101`. Subsequent IDs increment sequentially (`ER102`, `ER103`, etc.).
-- **Pass Criterion**: Pass percentage is **40.0%** or higher (`Percentage >= 40.0 -> Pass`, otherwise `Fail`).
+Manage student exam results with:
+- **Add student results** with marks in 3 subjects (each `0–100`).
+- **Display all results** stored in memory.
+- **Search by ERP ID** using manual Linear Search (`ERP 10061`, `erp10061`, or `10061`).
+- **Sort results by percentage (high to low)** using manual in-place Adaptive Bubble Sort.
+- **Persistence**: Load existing records from `results.txt` at startup and save automatically (and via `@netlify/blobs` when deployed on Netlify).
+- **ERP ID Sequence**: Starts at **`ERP 10061`** and increments sequentially (`ERP 10062`, `ERP 10063`, …).
+- **Pass Criterion**: `Percentage >= 40.00%` → `Pass`, otherwise `Fail`.
 
 ---
 
-## 📌 Bare Minimum Requirements
-1. **Single File Implementation**: Solution written in Java (`ExamResultManagementSystem.java`) and runnable from console.
-2. **ArrayList Object Storage**: Each student record is modeled as an instance of `StudentResult` and stored in an `ArrayList<StudentResult>`.
-3. **No Built-in Sort/Search Methods**:
-   - Custom in-place Bubble Sort for sorting by percentage (high to low).
-   - Custom Linear Search for looking up student records by ID.
-4. **Validation Rules**:
-   - Marks in each of the 3 subjects must be between 0 and 100.
-   - If marks violate this rule, output: `Invalid marks. Each mark must be between 0 and 100.` (and do not allocate or consume an ID).
-5. **Persistence**:
-   - Load existing data from `results.txt` at startup.
-   - Automatically save data on exit (including normal menu exit and JVM shutdown hooks).
+## ✨ Key Features & Modes
+1. **Netlify Full-Stack Web App (`public/` + `netlify/functions/results.mts`)**:
+   - Smooth modern UI with Light/Dark theme toggle, animated KPI counters, toast notifications, CSV/`results.txt` export, and instant row highlighting.
+   - Serverless `/api/results` backend powered by Netlify Functions + `@netlify/blobs` strong-consistency persistence.
+2. **Pure-Java Local Web Server (`./web.sh` / `--server`)**:
+   - Built-in `HttpServer` inside `ExamResultManagementSystem.java` serving `public/` and `/api/results` directly against `ArrayList<StudentResult>` and `results.txt` on `http://localhost:8080`.
+3. **Smooth Java Swing Desktop GUI (`./app.sh` / `--gui`)**:
+   - Anti-aliased rounded cards, hover-animated buttons, live stats bar, table row highlighting, and integrated output console.
+4. **Interactive Console CLI (`./run.sh`)**:
+   - Classic menu-driven terminal interface (`1–5`).
 
 ---
 
 ## ⚙️ Key Concepts & Algorithms
 
-### 1. Data Storage: Dynamic Array (`ArrayList<StudentResult>`)
-- Dynamic resizing with amortized $O(1)$ insertions.
-- Allows direct index access $O(1)$ for custom sorting swaps and linear iterations.
+### 1. Dynamic Storage (`ArrayList<StudentResult>`)
+- Amortized $O(1)$ append and $O(1)$ random index access for in-place swaps and linear traversal.
 
-### 2. Searching: Custom Linear Search (`searchById`)
-- **Algorithm**: Sequentially scans the `ArrayList` from index `0` to `n - 1`.
-- **Case Insensitivity**: Normalizes input using `.equalsIgnoreCase()` to support `ER101`, `er101`, etc.
-- **Time Complexity**:
-  - Best Case: $O(1)$ (target at index 0)
-  - Worst Case: $O(n)$ (target at end or not present)
-  - Average Case: $O(n)$
-- **Space Complexity**: $O(1)$ auxiliary space.
+### 2. Custom Linear Search (`searchById`)
+- **Why**: Student records are appended chronologically and frequently re-ordered by percentage rather than ID, so Linear Search scans unsorted IDs directly in $O(n)$ time and $O(1)$ space without maintaining extra index structures.
+- **Flexible Matching**: Normalizes `"ERP 10061"`, `"ERP10061"`, `"erp 10061"`, and `"10061"` to the same key.
 
-```java
-public static StudentResult searchById(ArrayList<StudentResult> list, String searchId) {
-    if (list == null || searchId == null) return null;
-    String target = searchId.trim();
-    for (int i = 0; i < list.size(); i++) {
-        StudentResult current = list.get(i);
-        if (current.getId().equalsIgnoreCase(target)) {
-            return current;
-        }
-    }
-    return null;
-}
-```
-
-### 3. Sorting: Custom In-Place Bubble Sort (`sortByPercentage`)
-- **Algorithm**: Compares adjacent student percentages and swaps them if the previous is smaller than the next (sorting in descending order from high to low).
-- **Optimization**: An early-exit `swapped` boolean flag terminates outer passes early if the array is already sorted ($O(n)$ best case).
-- **Stability**: Stable sort that preserves original insertion order for students with identical percentages.
-- **Time Complexity**:
-  - Best Case: $O(n)$ (already sorted)
-  - Worst Case: $O(n^2)$ (reverse sorted)
-  - Average Case: $O(n^2)$
-- **Space Complexity**: $O(1)$ auxiliary space (in-place).
-
-```java
-public static void sortByPercentage(ArrayList<StudentResult> list) {
-    if (list == null || list.size() <= 1) return;
-    int n = list.size();
-    for (int i = 0; i < n - 1; i++) {
-        boolean swapped = false;
-        for (int j = 0; j < n - i - 1; j++) {
-            if (list.get(j).getPercentage() < list.get(j + 1).getPercentage()) {
-                StudentResult temp = list.get(j);
-                list.set(j, list.get(j + 1));
-                list.set(j + 1, temp);
-                swapped = true;
-            }
-        }
-        if (!swapped) break;
-    }
-}
-```
+### 3. Custom Adaptive Bubble Sort (`sortByPercentage`)
+- **Why**: In-place ($O(1)$ auxiliary space), **stable** (preserves ERP chronological order when two students tie on percentage), and **adaptive** via an early-exit `swapped` flag ($O(n)$ best case when already sorted; $O(n^2)$ average/worst case).
 
 ---
 
 ## 📂 Project Structure
 ```
 .
-├── ExamResultManagementSystem.java               # Single-file Java solution (Console + Swing Desktop GUI)
-├── ExamResultManagementSystemTest.java           # Automated unit and integration test suite (32 checks)
-├── Exam_Result_Management_System_Report.pdf      # 10-page University Project Interim Report (PDF)
-├── Exam_Result_Management_System_Presentation.html # 12-slide Interactive 3D HTML5 Presentation Deck
-├── Exam_Result_Management_System_Presentation.pdf  # 12-slide Widescreen PDF Copy of the Presentation Deck
-├── app.sh                                        # One-click compile & launch Desktop GUI App
-├── Launch_App.command                            # Double-clickable macOS Finder launcher for GUI App
-├── Launch_Presentation.command                   # Double-clickable macOS Finder launcher for Presentation
-├── run.sh                                        # One-click compile & run Console mode (or ./run.sh --gui)
-├── test.sh                                       # One-click compile & run automated tests
-├── results.txt                                   # Data file (auto-created on save/exit, not committed)
-├── .gitignore                                    # Git ignore rules for build artifacts
-└── README.md                                     # Complete project documentation
+├── ExamResultManagementSystem.java                 # Java backend: Console CLI + Smooth Swing GUI + Local HTTP Server
+├── ExamResultManagementSystemTest.java             # Automated unit & integration test suite
+├── public/                                         # Smooth Responsive Web Frontend (Netlify publish dir)
+│   ├── index.html                                  # Clean Web UI (ERP 10061+, Dark/Light mode, Live Console)
+│   ├── styles.css                                  # Glassmorphic styling, micro-interactions, responsive layout
+│   └── app.js                                      # Frontend controller + localStorage offline fallback
+├── netlify/functions/
+│   └── results.mts                                 # Netlify Serverless API (/api/results) + Netlify Blobs storage
+├── netlify.toml                                    # Netlify build, publish, and functions configuration
+├── package.json                                    # Netlify Functions & Blobs dependencies
+├── web.sh                                          # Launch local Java Web Server at http://localhost:8080
+├── app.sh                                          # Launch Java Swing Desktop GUI
+├── run.sh                                          # Launch Console CLI mode
+├── test.sh                                         # Compile & run automated Java test suite
+├── Launch_App.command                              # Double-clickable macOS launcher for Swing Desktop GUI
+├── Exam_Result_Management_System_Report.pdf        # 10-page University Project Interim Report (PDF)
+├── Exam_Result_Management_System_Presentation.html # 12-slide Interactive 3D Presentation Deck
+├── Exam_Result_Management_System_Presentation.pdf  # 12-slide Widescreen PDF Presentation Deck
+└── Launch_Presentation.command                     # Double-clickable macOS launcher for Presentation
 ```
 
 ---
 
-## 🏗️ Class Design & Architecture
+## 💻 Local Execution Guide
 
-### `StudentResult`
-- **Attributes**:
-  - `id` (`String`): Sequential ID (e.g., `ER101`)
-  - `name` (`String`): Student's full name
-  - `mark1`, `mark2`, `mark3` (`int`): Subject marks (0–100)
-  - `total` (`int`): Sum of marks ($mark_1 + mark_2 + mark_3$)
-  - `percentage` (`double`): $(total \times 100.0) / 300.0$
-  - `result` (`String`): `"Pass"` if $percentage \ge 40.0$, else `"Fail"`
-- **Formatting Methods**:
-  - `toFullDetailString()`: `ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass`
-  - `toSortString()`: `ER101 | Kiran Patel | 80.00 | Pass`
-  - `toFileString()`: CSV representation for `results.txt`
-
-### `ExamResultManagementSystem`
-- `main(String[] args)`: Core interactive console REPL loop with automatic file loading and shutdown hooks.
-- `addResult(Scanner, ArrayList)`: Input reader, mark validator (0–100), ID generator, and list insertion.
-- `displayAll(ArrayList)`: Full listing of all stored results.
-- `searchById(ArrayList, String)`: Custom linear search algorithm.
-- `sortByPercentage(ArrayList)`: Custom descending bubble sort algorithm.
-- `loadResultsFromFile(ArrayList, String)`: Multi-format line parser for initial file load.
-- `saveResultsToFile(ArrayList, String)`: Serializes records to `results.txt`.
-
----
-
-## 💻 Compilation & Execution
-
-### Prerequisites
-- Java Development Kit (JDK 8 or higher; tested on JDK 26)
-
-### 1. Compile
+### 1. Run Smooth Web App Locally (Java Backend + Web UI)
 ```bash
-javac ExamResultManagementSystem.java
+./web.sh
+# Opens http://localhost:8080 backed by ArrayList<StudentResult> and results.txt
 ```
 
-### 2. Run Desktop GUI Application (Java Swing Window)
+### 2. Run Desktop GUI Application (Java Swing)
 ```bash
 ./app.sh
-# Or directly:
-java ExamResultManagementSystem --gui
-# Or double-click Launch_App.command in Finder on macOS
 ```
 
-### 3. Run Console Application (Default Terminal Mode)
+### 3. Run Console Application (Terminal Mode)
 ```bash
 ./run.sh
-# Or directly:
-java ExamResultManagementSystem
 ```
 
-### 4. Run Automated Tests
+### 4. Run Automated Test Suite
 ```bash
 ./test.sh
 ```
 
 ---
 
+## ☁️ Deploy to Netlify (Cloud Web App)
+
+This repository is pre-configured with `netlify.toml`, `public/`, and `netlify/functions/results.mts` for zero-config Netlify deployment:
+
+1. Log in to [app.netlify.com](https://app.netlify.com) and click **Add new project** → **Import an existing project**.
+2. Connect **GitHub** and select **`Abhishek112-cmyk/Exam-Result-Management-System`**.
+3. Netlify automatically detects `netlify.toml`:
+   - **Build command**: `npm run build`
+   - **Publish directory**: `public`
+   - **Functions directory**: `netlify/functions`
+4. Click **Deploy project** — your live full-stack web app and `/api/results` serverless backend (with persistent Netlify Blobs storage) will be live immediately.
+
+---
+
 ## 🧪 Test Cases & Expected Outputs
 
-### Test Case 1: Normal Input
-- **Input**:
-  - Option `1`
-  - Name: `Kiran Patel`
-  - Marks: `80 70 90`
-- **Expected Output**:
-  ```
-  Result added. ID: ER101 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
-  ```
-
-### Test Case 2: Boundary / Minimum Input
-- **Input**:
-  - Option `1`
-  - Name: `Lalit Soni`
-  - Marks: `40 40 40`
-- **Expected Output**:
-  ```
-  Result added. ID: ER101 | Lalit Soni | Total: 120/300 | Percentage: 40.00 | Result: Pass
-  ```
-
-### Test Case 3: Invalid Input
-- **Input**:
-  - Option `1`
-  - Name: `Kiran Patel`
-  - Marks: `80 105 90`
-- **Expected Output**:
-  ```
-  Invalid marks. Each mark must be between 0 and 100.
-  ```
-
-### Test Case 4: Different Valid Scenario
-- **Pre-existing**: `ER101 | Kiran Patel | 80.00 | Pass`
-- **Step (a) Option 1**: Name: `Mitali Roy`, Marks: `35 30 38`
-  ```
-  Result added. ID: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail
-  ```
-- **Step (b) Option 4 (Sort by percentage)**:
-  ```
-  1. ER101 | Kiran Patel | 80.00 | Pass
-  2. ER102 | Mitali Roy | 34.33 | Fail
-  ```
-- **Step (c) Option 3 (Search)**: ID: `ER102`
-  ```
-  Found: ER102 | Mitali Roy | Total: 103/300 | Percentage: 34.33 | Result: Fail
-  ```
-
----
-
-## 🛡️ Edge Cases Handled
-1. **Negative Marks**: e.g., `-5 50 60` are caught by validation and safely rejected.
-2. **Marks > 100**: e.g., `80 105 90` are rejected without consuming or advancing the ID counter.
-3. **ID Sequence Resiliency**: Correctly tracks existing IDs from `results.txt` and continues from the maximum ID.
-4. **Flexible Input Formats**: Accepts marks entered with spaces (`80 70 90`), commas (`80, 70, 90`), or multiple lines.
-5. **Non-Existent Search Target**: Displays `Result not found for ID: <ID>`.
-6. **Graceful EOF & Shutdown**: JVM shutdown hook guarantees saving to `results.txt` even on unexpected termination or piped input.
-
----
-
-## 🚀 GitHub Submission Guide
-
-Follow these simple commands to push your project to your GitHub repository:
-
-```bash
-# 1. Initialize git repository (if not already done)
-git init
-
-# 2. Stage all project files
-git add .
-
-# 3. Create initial commit
-git commit -m "feat: complete Exam Result Management System (PS No. 48) with full tests and documentation"
-
-# 4. Set your default branch to main
-git branch -M main
-
-# 5. Add your GitHub remote repository URL
-git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/<YOUR_REPOSITORY_NAME>.git
-
-# 6. Push to GitHub
-git push -u origin main
-```
+| Case | Input | Expected Output |
+| :--- | :--- | :--- |
+| **1. Normal Input** | `Kiran Patel`, Marks `80 70 90` | `Result added. ID: ERP 10061 \| Kiran Patel \| Total: 240/300 \| Percentage: 80.00 \| Result: Pass` |
+| **2. Boundary (40%)** | `Lalit Soni`, Marks `40 40 40` | `Result added. ID: ERP 10061 \| Lalit Soni \| Total: 120/300 \| Percentage: 40.00 \| Result: Pass` |
+| **3. Invalid Marks** | `Kiran Patel`, Marks `80 105 90` | `Invalid marks. Each mark must be between 0 and 100.` (`ERP 10061` not consumed) |
+| **4. Add + Sort + Search** | Add `Mitali Roy` (`35 30 38`), Sort, Search `ERP 10062` | Sorted high-to-low (`ERP 10061` then `ERP 10062`) and `Found: ERP 10062 \| Mitali Roy \| Total: 103/300 \| Percentage: 34.33 \| Result: Fail` |
