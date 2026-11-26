@@ -23,7 +23,7 @@
       <div class="stat-strip">
         <div class="stat-box stat-erp">
           <span class="stat-label">NEXT ERP</span>
-          <span class="stat-value" id="statNextErp">ERP 10061</span>
+          <span class="stat-value" id="statNextErp">ERP</span>
         </div>
         <div class="stat-box">
           <span class="stat-label">RECORDS</span>
@@ -47,7 +47,7 @@
     <!-- Live Feedback Banner -->
     <div class="status-banner info" id="statusBanner" role="status">
       <span class="status-dot"></span>
-      <span id="statusBannerText">Ready. First ERP ID is ERP 10061 | Each subject out of 100 | Pass percentage: 40.00</span>
+      <span id="statusBannerText">Ready. Each subject out of 100 | Pass percentage: 40.00</span>
     </div>
 
     <div class="workspace-grid">
@@ -57,11 +57,21 @@
         <section class="panel-card">
           <div class="card-header-row">
             <h2>1. Add Result</h2>
-            <span class="erp-badge" id="formErpBadge">ERP 10061</span>
+            <span class="erp-badge" id="formErpBadge">ERP</span>
           </div>
 
           <form id="addResultForm" autocomplete="off">
-            <label class="field-label" for="studentName">Student Name</label>
+            <label class="field-label" for="erpIdInput">
+              ERP ID <span class="label-hint" id="erpHintLabel">— enter first ID</span>
+            </label>
+            <input
+              class="text-input"
+              id="erpIdInput"
+              type="text"
+              placeholder="Enter ERP ID"
+            />
+
+            <label class="field-label" for="studentName" style="margin-top:12px;">Student Name</label>
             <input
               class="text-input"
               id="studentName"
@@ -99,13 +109,13 @@
             <h2>3. Search by ID</h2>
           </div>
           <form id="searchForm" autocomplete="off">
-            <label class="field-label" for="searchIdInput">Enter ERP ID (e.g. ERP 10061)</label>
+            <label class="field-label" for="searchIdInput">Enter ERP ID</label>
             <div class="search-row">
               <input
                 class="text-input"
                 id="searchIdInput"
                 type="text"
-                placeholder="ERP 10061"
+                placeholder="Enter ERP ID"
               />
               <button class="btn btn-teal" type="submit">3 – Search</button>
             </div>
@@ -152,7 +162,7 @@
               </thead>
               <tbody id="resultsTableBody">
                 <tr class="empty-row">
-                  <td colspan="9">No student results added yet. Enter a student's marks on the left to generate <strong>ERP 10061</strong>.</td>
+                  <td colspan="9">No student results saved yet. Enter an ERP ID, student name, and marks on the left to begin.</td>
                 </tr>
               </tbody>
             </table>
@@ -175,7 +185,7 @@
   <div class="modal-backdrop" id="confirmModal" aria-hidden="true">
     <div class="modal-dialog">
       <h3>Clear All Saved Records?</h3>
-      <p>This will remove all saved student records and reset the next ERP ID back to <strong>ERP 10061</strong>.</p>
+      <p>This will remove all saved student records and reset the auto-detected ERP ID back to <strong>ERP</strong>.</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" type="button" id="cancelClearBtn">Cancel</button>
         <button class="btn btn-danger" type="button" id="confirmClearBtn">Yes, Clear All</button>

@@ -284,6 +284,12 @@ html, body {
   margin-bottom: 5px;
 }
 
+.label-hint {
+  font-weight: 500;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
 .text-input {
   width: 100%;
   padding: 10px 12px;

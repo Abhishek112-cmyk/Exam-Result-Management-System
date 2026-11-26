@@ -12,12 +12,21 @@ interface StudentRecord {
   result: "Pass" | "Fail";
 }
 
-const INITIAL_ID_NUMBER = 10061;
 const BLOB_KEY = "results.txt";
 let memoryFallbackTxt = "";
 
 function formatId(num: number): string {
   return `ERP ${num}`;
+}
+
+function parseErpInput(raw: string): string | null {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  const num = parseInt(digits, 10);
+  if (Number.isNaN(num) || num < 0) return null;
+  return formatId(num);
 }
 
 function normalizeIdKey(raw: string): string {
@@ -56,18 +65,13 @@ function parseResultsTxt(txt: string): StudentRecord[] {
     if (!line || line.startsWith("#")) continue;
     const parts = line.split(",").map((s) => s.trim());
     if (parts.length >= 5) {
-      const digits = parts[0].replace(/[^0-9]/g, "");
-      let num = digits ? parseInt(digits, 10) : INITIAL_ID_NUMBER;
-      if (parts[0].toUpperCase().startsWith("ER") && !parts[0].toUpperCase().startsWith("ERP") && num < 10000) {
-        num = INITIAL_ID_NUMBER - 101 + num;
-      }
-      const id = formatId(num);
+      const parsedId = parseErpInput(parts[0]) ?? parts[0];
       const name = parts[1];
       const m1 = parseInt(parts[2], 10);
       const m2 = parseInt(parts[3], 10);
       const m3 = parseInt(parts[4], 10);
       if (!Number.isNaN(m1) && !Number.isNaN(m2) && !Number.isNaN(m3)) {
-        list.push(createStudentRecord(id, name, m1, m2, m3));
+        list.push(createStudentRecord(parsedId, name, m1, m2, m3));
       }
     }
   }
@@ -82,18 +86,23 @@ function serializeResultsTxt(list: StudentRecord[]): string {
   return lines.join("\n");
 }
 
-function computeNextIdNumber(list: StudentRecord[]): number {
-  let maxId = INITIAL_ID_NUMBER - 1;
+/**
+ * Auto-detects the next sequential ERP ID from existing records.
+ * Returns "ERP" (with no hardcoded number) when 0 records exist.
+ */
+function computeNextId(list: StudentRecord[]): string {
+  if (list.length === 0) return "ERP";
+  let maxId: number | null = null;
   for (let i = 0; i < list.length; i++) {
     const digits = list[i].id.replace(/[^0-9]/g, "");
     if (digits) {
       const num = parseInt(digits, 10);
-      if (!Number.isNaN(num) && num > maxId) {
+      if (!Number.isNaN(num) && (maxId === null || num > maxId)) {
         maxId = num;
       }
     }
   }
-  return maxId + 1;
+  return maxId !== null ? formatId(maxId + 1) : "ERP";
 }
 
 /**
@@ -101,7 +110,7 @@ function computeNextIdNumber(list: StudentRecord[]): number {
  */
 function searchById(list: StudentRecord[], query: string): { record: StudentRecord | null; index: number } {
   const target = normalizeIdKey(query);
-  if (!target) return { record: null, index: -1 };
+  if (!target || target === "ERP") return { record: null, index: -1 };
   for (let i = 0; i < list.length; i++) {
     if (normalizeIdKey(list[i].id) === target) {
       return { record: list[i], index: i };
@@ -172,11 +181,10 @@ function buildPayload(
   for (let i = 0; i < list.length; i++) {
     if (list[i].result === "Pass") pass++;
   }
-  const nextNum = computeNextIdNumber(list);
   return {
     success,
     message,
-    nextId: formatId(nextNum),
+    nextId: computeNextId(list),
     matchedIndex,
     record,
     stats: {
@@ -206,6 +214,41 @@ export default async (req: Request, context: Context) => {
     const action = String(body.action ?? "").toLowerCase();
 
     if (action === "add") {
+      const rawErp = String(body.erpId ?? "").trim();
+      let resolvedId: string | null = null;
+
+      if (rawErp && rawErp.toUpperCase() !== "ERP") {
+        resolvedId = parseErpInput(rawErp);
+        if (!resolvedId) {
+          return Response.json(
+            buildPayload(list, false, "Invalid ERP ID. Please enter a valid ERP number.", null, -1),
+            { status: 400 }
+          );
+        }
+      } else {
+        const autoId = computeNextId(list);
+        if (autoId === "ERP") {
+          return Response.json(
+            buildPayload(
+              list,
+              false,
+              "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
+              null,
+              -1
+            ),
+            { status: 400 }
+          );
+        }
+        resolvedId = autoId;
+      }
+
+      if (searchById(list, resolvedId).record !== null) {
+        return Response.json(
+          buildPayload(list, false, `Duplicate ERP ID (${resolvedId}). A record with this ID already exists.`, null, -1),
+          { status: 400 }
+        );
+      }
+
       const rawName = String(body.name ?? "")
         .replace(/[,|]/g, " ")
         .replace(/\s+/g, " ")
@@ -259,8 +302,7 @@ export default async (req: Request, context: Context) => {
         );
       }
 
-      const id = formatId(computeNextIdNumber(list));
-      const created = createStudentRecord(id, rawName, m1, m2, m3);
+      const created = createStudentRecord(resolvedId, rawName, m1, m2, m3);
       list.push(created);
       await saveRecords(context, list);
 
@@ -272,7 +314,7 @@ export default async (req: Request, context: Context) => {
       const query = String(body.id ?? "").trim();
       if (!query) {
         return Response.json(
-          buildPayload(list, false, "Please enter an ERP ID to search (e.g. ERP 10061).", null, -1),
+          buildPayload(list, false, "Please enter an ERP ID to search.", null, -1),
           { status: 400 }
         );
       }
@@ -300,7 +342,7 @@ export default async (req: Request, context: Context) => {
       list.length = 0;
       await saveRecords(context, list);
       return Response.json(
-        buildPayload(list, true, `Cleared all saved records. Next ERP ID reset to ${formatId(INITIAL_ID_NUMBER)}.`, null, -1)
+        buildPayload(list, true, "Cleared all saved records. Auto-detected ERP ID reset to ERP.", null, -1)
       );
     }
 

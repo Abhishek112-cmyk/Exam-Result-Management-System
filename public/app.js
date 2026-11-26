@@ -1,12 +1,12 @@
 // Exam Result Management System — Smooth Frontend Controller
 // Connects to /api/results (Netlify Serverless Function or Java HTTP Backend),
 // with seamless localStorage fallback when opened offline.
+// Auto-detects next ERP ID from saved records (displays just "ERP" when 0 records exist).
 
-const INITIAL_ERP_NUMBER = 10061;
-const LOCAL_STORAGE_KEY = "exam_results_erp_v1";
+const LOCAL_STORAGE_KEY = "exam_results_erp_v2";
 
 let appRecords = [];
-let nextErpId = `ERP ${INITIAL_ERP_NUMBER}`;
+let nextErpId = "ERP";
 let backendOnline = true;
 
 // DOM references
@@ -15,12 +15,14 @@ const statTotal = document.getElementById("statTotal");
 const statPass = document.getElementById("statPass");
 const statFail = document.getElementById("statFail");
 const formErpBadge = document.getElementById("formErpBadge");
+const erpHintLabel = document.getElementById("erpHintLabel");
 const statusBanner = document.getElementById("statusBanner");
 const statusBannerText = document.getElementById("statusBannerText");
 const tableMetaLabel = document.getElementById("tableMetaLabel");
 const resultsTableBody = document.getElementById("resultsTableBody");
 const consoleBox = document.getElementById("consoleBox");
 
+const erpIdInput = document.getElementById("erpIdInput");
 const studentNameInput = document.getElementById("studentName");
 const mark1Input = document.getElementById("mark1");
 const mark2Input = document.getElementById("mark2");
@@ -28,6 +30,16 @@ const mark3Input = document.getElementById("mark3");
 const searchIdInput = document.getElementById("searchIdInput");
 
 // ---------- Offline Fallback DSA Engine (mirrors backend identically) ----------
+function parseErpInput(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  const n = parseInt(digits, 10);
+  if (Number.isNaN(n) || n < 0) return null;
+  return `ERP ${n}`;
+}
+
 function normalizeIdKey(raw) {
   const cleaned = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
   if (cleaned.startsWith("ERP")) return "ERP" + cleaned.slice(3);
@@ -37,15 +49,16 @@ function normalizeIdKey(raw) {
 }
 
 function computeNextId(list) {
-  let max = INITIAL_ERP_NUMBER - 1;
+  if (!list || list.length === 0) return "ERP";
+  let max = null;
   for (let i = 0; i < list.length; i++) {
     const digits = String(list[i].id || "").replace(/[^0-9]/g, "");
     if (digits) {
       const n = parseInt(digits, 10);
-      if (!Number.isNaN(n) && n > max) max = n;
+      if (!Number.isNaN(n) && (max === null || n > max)) max = n;
     }
   }
-  return `ERP ${max + 1}`;
+  return max !== null ? `ERP ${max + 1}` : "ERP";
 }
 
 function fullDetail(r) {
@@ -58,6 +71,7 @@ function sortDetail(r) {
 
 function linearSearchLocal(list, query) {
   const target = normalizeIdKey(query);
+  if (!target || target === "ERP") return { record: null, index: -1 };
   for (let i = 0; i < list.length; i++) {
     if (normalizeIdKey(list[i].id) === target) {
       return { record: list[i], index: i };
@@ -125,6 +139,30 @@ function runLocalFallbackAction(method, payload) {
   }
   const action = String(payload?.action || "").toLowerCase();
   if (action === "add") {
+    const rawErp = String(payload.erpId || "").trim();
+    let id = null;
+    if (rawErp && rawErp.toUpperCase() !== "ERP") {
+      id = parseErpInput(rawErp);
+      if (!id) {
+        return buildClientPayload(list, false, "Invalid ERP ID. Please enter a valid ERP number.", -1);
+      }
+    } else {
+      const autoId = computeNextId(list);
+      if (autoId === "ERP") {
+        return buildClientPayload(
+          list,
+          false,
+          "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
+          -1
+        );
+      }
+      id = autoId;
+    }
+
+    if (linearSearchLocal(list, id).record !== null) {
+      return buildClientPayload(list, false, `Duplicate ERP ID (${id}). A record with this ID already exists.`, -1);
+    }
+
     const name = String(payload.name || "").replace(/[,|]/g, " ").replace(/\s+/g, " ").trim();
     if (!name) return buildClientPayload(list, false, "Invalid name. Name cannot be empty.", -1);
     const p1 = String(payload.m1 || "").trim();
@@ -145,7 +183,6 @@ function runLocalFallbackAction(method, payload) {
     if (m1 < 0 || m1 > 100 || m2 < 0 || m2 > 100 || m3 < 0 || m3 > 100) {
       return buildClientPayload(list, false, "Invalid marks. Each mark must be between 0 and 100.", -1);
     }
-    const id = computeNextId(list);
     const total = m1 + m2 + m3;
     const percentage = Number(((total * 100.0) / 300.0).toFixed(2));
     const result = (total * 100.0) / 300.0 >= 40.0 ? "Pass" : "Fail";
@@ -170,7 +207,7 @@ function runLocalFallbackAction(method, payload) {
   if (action === "clear") {
     list.length = 0;
     saveLocalFallback(list);
-    return buildClientPayload(list, true, `Cleared all saved records. Next ERP ID reset to ERP ${INITIAL_ERP_NUMBER}.`, -1);
+    return buildClientPayload(list, true, "Cleared all saved records. Auto-detected ERP ID reset to ERP.", -1);
   }
   return buildClientPayload(list, false, "Unsupported action.", -1);
 }
@@ -225,9 +262,21 @@ function bumpStat(el) {
   setTimeout(() => box.classList.remove("bump"), 250);
 }
 
-function renderState(data, { highlightIndex = -1, metaLabel = null } = {}) {
+function syncErpFormField() {
+  if (appRecords.length === 0 || nextErpId === "ERP") {
+    erpHintLabel.textContent = "— enter first ID";
+    erpIdInput.placeholder = "Enter ERP ID";
+    erpIdInput.value = "";
+  } else {
+    erpHintLabel.textContent = "— auto-detected";
+    erpIdInput.placeholder = nextErpId;
+    erpIdInput.value = nextErpId;
+  }
+}
+
+function renderState(data, { highlightIndex = -1, metaLabel = null, syncErpInput = true } = {}) {
   appRecords = data.records || [];
-  nextErpId = data.nextId || `ERP ${INITIAL_ERP_NUMBER}`;
+  nextErpId = data.nextId || computeNextId(appRecords);
 
   statNextErp.textContent = nextErpId;
   formErpBadge.textContent = nextErpId;
@@ -236,12 +285,16 @@ function renderState(data, { highlightIndex = -1, metaLabel = null } = {}) {
   statFail.textContent = String(data.stats?.fail ?? 0);
   bumpStat(statTotal);
 
+  if (syncErpInput) {
+    syncErpFormField();
+  }
+
   tableMetaLabel.textContent = metaLabel || `Showing ${appRecords.length} record(s)`;
 
   if (appRecords.length === 0) {
     resultsTableBody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="9">No student results saved yet. Enter marks on the left to generate <strong>${nextErpId}</strong>.</td>
+        <td colspan="9">No student results saved yet. Enter an ERP ID, student name, and marks on the left to begin.</td>
       </tr>`;
     return;
   }
@@ -283,7 +336,13 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-// Auto-split pasted "80 70 90" in Subject 1 into Subject 1, 2, 3 smoothly!
+// Live preview in form badge when user types an ERP ID
+erpIdInput.addEventListener("input", () => {
+  const parsed = parseErpInput(erpIdInput.value);
+  formErpBadge.textContent = parsed || nextErpId;
+});
+
+// Auto-split pasted "80 70 90" in Subject 1 into Subject 1, 2, 3 smoothly
 mark1Input.addEventListener("input", () => {
   const val = mark1Input.value.trim();
   if (/[,\s]+/.test(val) && !mark2Input.value.trim() && !mark3Input.value.trim()) {
@@ -302,6 +361,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
   e.preventDefault();
   const payload = {
     action: "add",
+    erpId: erpIdInput.value,
     name: studentNameInput.value,
     m1: mark1Input.value,
     m2: mark2Input.value,
@@ -312,7 +372,7 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
   appendConsole(data.message);
 
   if (data.success) {
-    renderState(data, { highlightIndex: data.matchedIndex });
+    renderState(data, { highlightIndex: data.matchedIndex, syncErpInput: true });
     setBanner(data.message, "ok");
     showToast(`Added ${data.records[data.records.length - 1]?.id}`, "ok");
     studentNameInput.value = "";
@@ -323,6 +383,9 @@ document.getElementById("addResultForm").addEventListener("submit", async (e) =>
   } else {
     setBanner(data.message, "err");
     showToast(data.message, "err");
+    if (appRecords.length === 0 && !parseErpInput(erpIdInput.value)) {
+      erpIdInput.focus();
+    }
   }
 });
 
@@ -331,14 +394,20 @@ document.getElementById("clearFormBtn").addEventListener("click", () => {
   mark1Input.value = "";
   mark2Input.value = "";
   mark3Input.value = "";
-  studentNameInput.focus();
+  syncErpFormField();
+  formErpBadge.textContent = nextErpId;
+  if (appRecords.length === 0) {
+    erpIdInput.focus();
+  } else {
+    studentNameInput.focus();
+  }
 });
 
 document.getElementById("searchForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const query = searchIdInput.value.trim();
   if (!query) {
-    setBanner("Please enter an ERP ID to search (e.g. ERP 10061).", "err");
+    setBanner("Please enter an ERP ID to search.", "err");
     return;
   }
   const data = await callBackend("POST", { action: "search", id: query });
@@ -349,10 +418,11 @@ document.getElementById("searchForm").addEventListener("submit", async (e) => {
     renderState(data, {
       highlightIndex: data.matchedIndex,
       metaLabel: `Search matched row #${data.matchedIndex + 1} (${appRecords[data.matchedIndex]?.id || query})`,
+      syncErpInput: false,
     });
     setBanner(data.message, "ok");
   } else {
-    renderState(data, { highlightIndex: -1 });
+    renderState(data, { highlightIndex: -1, syncErpInput: false });
     setBanner(data.message, "err");
     showToast(data.message, "err");
   }
@@ -420,7 +490,7 @@ document.getElementById("confirmClearBtn").addEventListener("click", async () =>
   confirmModal.classList.remove("open");
   const data = await callBackend("POST", { action: "clear" });
   searchIdInput.value = "";
-  renderState(data);
+  renderState(data, { syncErpInput: true });
   appendConsole(`> ${data.message}`);
   setBanner(data.message, "ok");
   showToast("Cleared all saved records", "ok");
@@ -442,12 +512,12 @@ themeToggleBtn.addEventListener("click", () => {
 // Initial Bootstrap
 (async function init() {
   const data = await callBackend("GET");
-  renderState(data);
+  renderState(data, { syncErpInput: true });
   if (data.records.length === 0) {
-    setBanner(`Ready. First ERP ID is ${data.nextId} | Each subject out of 100 | Pass percentage: 40.00`, "info");
-    appendConsole(`System ready. 0 existing records. Next ID: ${data.nextId}`);
+    setBanner("Ready. Enter the first student's ERP ID to begin — subsequent ERP IDs auto-detect automatically.", "info");
+    appendConsole("System ready. 0 existing records. Enter the first ERP ID to start auto-detection.");
   } else {
-    setBanner(`Loaded ${data.records.length} record(s). Next ID: ${data.nextId}`, "ok");
+    setBanner(`Loaded ${data.records.length} record(s). Auto-detected next ID: ${data.nextId}`, "ok");
     appendConsole(`Loaded ${data.records.length} record(s):`);
     appendConsole(data.records.map((r, i) => `${i + 1}. ${fullDetail(r)}`).join("\n"));
   }

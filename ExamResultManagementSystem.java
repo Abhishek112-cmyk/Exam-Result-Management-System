@@ -135,7 +135,7 @@ class StudentResult {
 
     /**
      * Formats full details:
-     * e.g.: ERP 10061 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
+     * e.g.: ERP 501 | Kiran Patel | Total: 240/300 | Percentage: 80.00 | Result: Pass
      */
     public String toFullDetailString() {
         return String.format(Locale.US, "%s | %s | Total: %d/300 | Percentage: %.2f | Result: %s",
@@ -144,7 +144,7 @@ class StudentResult {
 
     /**
      * Formats concise details for sorted output:
-     * e.g.: ERP 10061 | Kiran Patel | 80.00 | Pass
+     * e.g.: ERP 501 | Kiran Patel | 80.00 | Pass
      */
     public String toSortString() {
         return String.format(Locale.US, "%s | %s | %.2f | %s",
@@ -215,8 +215,7 @@ class OperationResult {
 public class ExamResultManagementSystem {
     public static final String FILE_NAME = "results.txt";
     public static final String ID_PREFIX = "ERP ";
-    public static final int INITIAL_ID_NUMBER = 10061;
-    private static int nextIdNumber = INITIAL_ID_NUMBER;
+    private static Integer nextIdNumber = null;
 
     public static void main(String[] args) {
         boolean launchGui = false;
@@ -252,8 +251,27 @@ public class ExamResultManagementSystem {
         return ID_PREFIX + num;
     }
 
+    public static String formatNextId() {
+        return (nextIdNumber == null) ? "ERP" : formatId(nextIdNumber);
+    }
+
+    public static String parseErpInput(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) return null;
+        String digits = trimmed.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) return null;
+        try {
+            int num = Integer.parseInt(digits);
+            if (num < 0) return null;
+            return formatId(num);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     /**
-     * Normalizes an ERP ID string so "ERP 10061", "ERP10061", "erp 10061", and "10061" match cleanly.
+     * Normalizes an ERP ID string so "ERP <n>", "ERP<n>", "erp <n>", and "<n>" match cleanly.
      */
     public static String normalizeIdKey(String raw) {
         if (raw == null) return "";
@@ -413,11 +431,12 @@ public class ExamResultManagementSystem {
                 String action = extractJsonString(body, "action");
 
                 if ("add".equalsIgnoreCase(action)) {
+                    String erpId = extractJsonString(body, "erpId");
                     String name = extractJsonString(body, "name");
                     String m1 = extractJsonString(body, "m1");
                     String m2 = extractJsonString(body, "m2");
                     String m3 = extractJsonString(body, "m3");
-                    OperationResult op = addResultFromInputs(list, name, m1, m2, m3);
+                    OperationResult op = addResultFromInputs(list, erpId, name, m1, m2, m3);
                     if (op.isSuccess()) {
                         saveResultsToFile(list, FILE_NAME);
                     } else {
@@ -444,7 +463,7 @@ public class ExamResultManagementSystem {
                 } else if ("clear".equalsIgnoreCase(action)) {
                     clearAllResults(list, FILE_NAME);
                     responseJson = buildStateJson(list, true,
-                            "Cleared all saved records. Next ERP ID reset to " + formatId(nextIdNumber) + ".", null, -1);
+                            "Cleared all saved records. Auto-detected ERP ID reset to ERP.", null, -1);
                 } else {
                     status = 400;
                     responseJson = "{\"success\":false,\"message\":\"Unsupported action.\"}";
@@ -482,7 +501,7 @@ public class ExamResultManagementSystem {
                 Locale.US,
                 "{\"success\":%b,\"message\":\"%s\",\"nextId\":\"%s\",\"matchedIndex\":%d,\"record\":%s,"
                         + "\"stats\":{\"total\":%d,\"pass\":%d,\"fail\":%d},\"records\":%s}",
-                success, safeMsg, formatId(nextIdNumber), matchedIndex, focusJson,
+                success, safeMsg, formatNextId(), matchedIndex, focusJson,
                 list.size(), passCount, failCount, arr.toString());
     }
 
@@ -565,10 +584,37 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Shared core method to sanitize name, validate 3 subject marks (0-100),
-     * generate sequential ERP ID (starting ERP 10061), and append to the ArrayList.
+     * Shared core method to validate ERP ID (manual first ID or auto-detected next ID),
+     * sanitize name, validate 3 subject marks (0-100), and append to the ArrayList.
      */
-    public static OperationResult createAndAddResult(ArrayList<StudentResult> list, String rawName, int m1, int m2, int m3) {
+    public static OperationResult createAndAddResult(
+            ArrayList<StudentResult> list, String rawErpId, String rawName, int m1, int m2, int m3) {
+        String resolvedId;
+        if (rawErpId != null && !rawErpId.trim().isEmpty() && !"ERP".equalsIgnoreCase(rawErpId.trim())) {
+            resolvedId = parseErpInput(rawErpId);
+            if (resolvedId == null) {
+                return new OperationResult(false, "Invalid ERP ID. Please enter a valid ERP number.", null);
+            }
+        } else {
+            if (nextIdNumber == null) {
+                updateNextIdNumber(list);
+            }
+            if (nextIdNumber == null) {
+                return new OperationResult(
+                        false,
+                        "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
+                        null);
+            }
+            resolvedId = formatId(nextIdNumber);
+        }
+
+        if (searchById(list, resolvedId) != null) {
+            return new OperationResult(
+                    false,
+                    "Duplicate ERP ID (" + resolvedId + "). A record with this ID already exists.",
+                    null);
+        }
+
         if (rawName == null) {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
         }
@@ -581,19 +627,38 @@ public class ExamResultManagementSystem {
             return new OperationResult(false, "Invalid marks. Each mark must be between 0 and 100.", null);
         }
 
-        String id = formatId(nextIdNumber++);
-        StudentResult newResult = new StudentResult(id, name, m1, m2, m3);
+        StudentResult newResult = new StudentResult(resolvedId, name, m1, m2, m3);
         list.add(newResult);
+        updateNextIdNumber(list);
 
         String message = "Result added. ID: " + newResult.toFullDetailString();
         return new OperationResult(true, message, newResult);
+    }
+
+    public static OperationResult createAndAddResult(ArrayList<StudentResult> list, String rawName, int m1, int m2, int m3) {
+        return createAndAddResult(list, null, rawName, m1, m2, m3);
     }
 
     /**
      * Parses raw mark strings (either 3 separate inputs or space/comma-separated marks in the first input)
      * and adds the student result.
      */
-    public static OperationResult addResultFromInputs(ArrayList<StudentResult> list, String rawName, String s1, String s2, String s3) {
+    public static OperationResult addResultFromInputs(
+            ArrayList<StudentResult> list, String rawErpId, String rawName, String s1, String s2, String s3) {
+        if (rawErpId == null || rawErpId.trim().isEmpty() || "ERP".equalsIgnoreCase(rawErpId.trim())) {
+            if (nextIdNumber == null) {
+                updateNextIdNumber(list);
+            }
+            if (nextIdNumber == null) {
+                return new OperationResult(
+                        false,
+                        "Please enter the first ERP ID so the system can auto-detect subsequent ERP IDs.",
+                        null);
+            }
+        } else if (parseErpInput(rawErpId) == null) {
+            return new OperationResult(false, "Invalid ERP ID. Please enter a valid ERP number.", null);
+        }
+
         String nameCheck = (rawName == null) ? "" : rawName.replace(",", " ").replace("|", " ").replaceAll("\\s+", " ").trim();
         if (nameCheck.isEmpty()) {
             return new OperationResult(false, "Invalid name. Name cannot be empty.", null);
@@ -628,13 +693,31 @@ public class ExamResultManagementSystem {
             return new OperationResult(false, "Invalid marks. Each mark must be an integer between 0 and 100.", null);
         }
 
-        return createAndAddResult(list, nameCheck, m1, m2, m3);
+        return createAndAddResult(list, rawErpId, nameCheck, m1, m2, m3);
+    }
+
+    public static OperationResult addResultFromInputs(ArrayList<StudentResult> list, String rawName, String s1, String s2, String s3) {
+        return addResultFromInputs(list, null, rawName, s1, s2, s3);
     }
 
     /**
      * Feature 1: Add Result (Console interaction)
      */
     public static void addResult(Scanner scanner, ArrayList<StudentResult> list) {
+        String rawErp = null;
+        if (nextIdNumber == null && (list == null || list.isEmpty())) {
+            System.out.print("Enter First ERP ID: ");
+            if (!scanner.hasNextLine()) return;
+            rawErp = scanner.nextLine().trim();
+            while (rawErp.isEmpty() && scanner.hasNextLine()) {
+                rawErp = scanner.nextLine().trim();
+            }
+            if (parseErpInput(rawErp) == null) {
+                System.out.println("Invalid ERP ID. Please enter a valid ERP number.");
+                return;
+            }
+        }
+
         System.out.print("Enter Name: ");
         if (!scanner.hasNextLine()) return;
         String name = scanner.nextLine().trim();
@@ -688,7 +771,7 @@ public class ExamResultManagementSystem {
             return;
         }
 
-        OperationResult outcome = createAndAddResult(list, name, m1, m2, m3);
+        OperationResult outcome = createAndAddResult(list, rawErp, name, m1, m2, m3);
         System.out.println(outcome.getMessage());
     }
 
@@ -744,6 +827,9 @@ public class ExamResultManagementSystem {
             return null;
         }
         String targetKey = normalizeIdKey(searchId);
+        if (targetKey.isEmpty() || "ERP".equals(targetKey)) {
+            return null;
+        }
         for (int i = 0; i < list.size(); i++) {
             StudentResult current = list.get(i);
             if (normalizeIdKey(current.getId()).equals(targetKey)) {
@@ -761,6 +847,9 @@ public class ExamResultManagementSystem {
             return -1;
         }
         String targetKey = normalizeIdKey(searchId);
+        if (targetKey.isEmpty() || "ERP".equals(targetKey)) {
+            return -1;
+        }
         for (int i = 0; i < list.size(); i++) {
             if (normalizeIdKey(list.get(i).getId()).equals(targetKey)) {
                 return i;
@@ -771,8 +860,8 @@ public class ExamResultManagementSystem {
 
     /**
      * Builds the formatted Sort output:
-     * 1. ERP 10061 | Kiran Patel | 80.00 | Pass
-     * 2. ERP 10062 | Mitali Roy | 34.33 | Fail
+     * 1. ERP 501 | Kiran Patel | 80.00 | Pass
+     * 2. ERP 502 | Mitali Roy | 34.33 | Fail
      */
     public static String formatSortedResults(ArrayList<StudentResult> list) {
         if (list == null || list.isEmpty()) {
@@ -852,23 +941,12 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Normalizes loaded IDs to "ERP <num>" format (upgrading legacy ERxxx records seamlessly).
+     * Normalizes loaded IDs to "ERP <num>" format.
      */
     private static String normalizeLoadedId(String rawId) {
-        if (rawId == null) return formatId(INITIAL_ID_NUMBER);
-        String trimmed = rawId.trim();
-        String digits = trimmed.replaceAll("[^0-9]", "");
-        if (!digits.isEmpty()) {
-            try {
-                int num = Integer.parseInt(digits);
-                if (trimmed.toUpperCase(Locale.US).startsWith("ER") && !trimmed.toUpperCase(Locale.US).startsWith("ERP") && num < 10000) {
-                    num = (INITIAL_ID_NUMBER - 101) + num;
-                }
-                return formatId(num);
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return trimmed;
+        if (rawId == null) return "ERP";
+        String parsed = parseErpInput(rawId);
+        return (parsed != null) ? parsed : rawId.trim();
     }
 
     /**
@@ -994,7 +1072,7 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Clears all records in memory, deletes/clears the saved file, and resets nextIdNumber back to 10061 (ERP 10061).
+     * Clears all records in memory, deletes/clears the saved file, and resets nextIdNumber to null ("ERP").
      */
     public static void clearAllResults(ArrayList<StudentResult> list, String fileName) {
         if (list != null) {
@@ -1013,36 +1091,38 @@ public class ExamResultManagementSystem {
     }
 
     /**
-     * Finds the maximum ERP ID sequence number and updates nextIdNumber.
-     * Ensures IDs start at ERP 10061, and continue sequentially (ERP 10062, ERP 10063, ...).
+     * Auto-detects the maximum ERP ID sequence number and sets nextIdNumber = max + 1.
+     * When 0 records exist, nextIdNumber is null so the UI displays "ERP" with no hardcoded number.
      */
     public static void updateNextIdNumber(ArrayList<StudentResult> list) {
-        int maxId = INITIAL_ID_NUMBER - 1;
-        if (list != null) {
-            for (int i = 0; i < list.size(); i++) {
-                String id = list.get(i).getId();
-                if (id != null) {
-                    String digits = id.replaceAll("[^0-9]", "");
-                    if (!digits.isEmpty()) {
-                        try {
-                            int num = Integer.parseInt(digits);
-                            if (num > maxId) {
-                                maxId = num;
-                            }
-                        } catch (NumberFormatException ignored) {
+        if (list == null || list.isEmpty()) {
+            nextIdNumber = null;
+            return;
+        }
+        Integer maxId = null;
+        for (int i = 0; i < list.size(); i++) {
+            String id = list.get(i).getId();
+            if (id != null) {
+                String digits = id.replaceAll("[^0-9]", "");
+                if (!digits.isEmpty()) {
+                    try {
+                        int num = Integer.parseInt(digits);
+                        if (maxId == null || num > maxId) {
+                            maxId = num;
                         }
+                    } catch (NumberFormatException ignored) {
                     }
                 }
             }
         }
-        nextIdNumber = maxId + 1;
+        nextIdNumber = (maxId == null) ? null : (maxId + 1);
     }
 
-    public static int getNextIdNumber() {
+    public static Integer getNextIdNumber() {
         return nextIdNumber;
     }
 
-    public static void setNextIdNumber(int val) {
+    public static void setNextIdNumber(Integer val) {
         nextIdNumber = val;
     }
 }
@@ -1166,6 +1246,7 @@ class ExamResultGUI extends JFrame {
     private JLabel failCountStatLabel;
 
     private JLabel formNextIdBadge;
+    private JTextField erpIdField;
     private JTextField nameField;
     private JTextField mark1Field;
     private JTextField mark2Field;
@@ -1204,12 +1285,12 @@ class ExamResultGUI extends JFrame {
 
         refreshTable(false);
         updateStats();
-        String nextErp = ExamResultManagementSystem.formatId(ExamResultManagementSystem.getNextIdNumber());
+        String nextErp = ExamResultManagementSystem.formatNextId();
         if (resultsList.isEmpty()) {
-            setBanner("Ready. First ERP ID is " + nextErp + " | Each subject out of 100 | Pass percentage: 40.00", false, true);
-            appendLog("Loaded " + fileName + ": 0 existing records. Next ID: " + nextErp);
+            setBanner("Ready. Enter the first student's ERP ID to begin — subsequent IDs auto-detect automatically.", false, true);
+            appendLog("Loaded " + fileName + ": 0 existing records. Enter first ERP ID to start auto-detection.");
         } else {
-            setBanner("Loaded " + resultsList.size() + " record(s) from " + fileName + ". Next ID: " + nextErp, true, false);
+            setBanner("Loaded " + resultsList.size() + " record(s) from " + fileName + ". Auto-detected next ID: " + nextErp, true, false);
             appendLog("Loaded " + resultsList.size() + " record(s) from " + fileName + ":");
             appendLog(ExamResultManagementSystem.formatDisplayAll(resultsList));
         }
@@ -1239,7 +1320,7 @@ class ExamResultGUI extends JFrame {
         JPanel statsPanel = new JPanel(new GridLayout(1, 4, 10, 0));
         statsPanel.setOpaque(false);
 
-        nextIdStatLabel = new JLabel("ERP 10061", SwingConstants.CENTER);
+        nextIdStatLabel = new JLabel("ERP", SwingConstants.CENTER);
         totalRecordsStatLabel = new JLabel("0", SwingConstants.CENTER);
         passCountStatLabel = new JLabel("0", SwingConstants.CENTER);
         failCountStatLabel = new JLabel("0", SwingConstants.CENTER);
@@ -1331,7 +1412,7 @@ class ExamResultGUI extends JFrame {
         sectionTitle.setFont(new Font("SansSerif", Font.BOLD, 15));
         sectionTitle.setForeground(TEXT_MAIN);
 
-        formNextIdBadge = new JLabel("ERP 10061");
+        formNextIdBadge = new JLabel("ERP");
         formNextIdBadge.setFont(new Font("Monospaced", Font.BOLD, 12));
         formNextIdBadge.setForeground(PRIMARY);
         formNextIdBadge.setBorder(BorderFactory.createCompoundBorder(
@@ -1350,15 +1431,25 @@ class ExamResultGUI extends JFrame {
 
         gbc.gridy = 1;
         gbc.insets = new Insets(8, 4, 2, 4);
+        card.add(createFieldLabel("ERP ID"), gbc);
+
+        erpIdField = createStyledTextField("");
+        erpIdField.setToolTipText("Enter first ERP ID; subsequent ERP IDs auto-detect automatically");
+        gbc.gridy = 2;
+        gbc.insets = new Insets(0, 4, 6, 4);
+        card.add(erpIdField, gbc);
+
+        gbc.gridy = 3;
+        gbc.insets = new Insets(4, 4, 2, 4);
         card.add(createFieldLabel("Student Name"), gbc);
 
         nameField = createStyledTextField("");
         nameField.setToolTipText("e.g. Kiran Patel");
-        gbc.gridy = 2;
+        gbc.gridy = 4;
         gbc.insets = new Insets(0, 4, 6, 4);
         card.add(nameField, gbc);
 
-        gbc.gridy = 3;
+        gbc.gridy = 5;
         gbc.insets = new Insets(4, 4, 2, 4);
         card.add(createFieldLabel("Marks in 3 Subjects (0 - 100 each)"), gbc);
 
@@ -1378,7 +1469,7 @@ class ExamResultGUI extends JFrame {
         marksGrid.add(mark2Field);
         marksGrid.add(mark3Field);
 
-        gbc.gridy = 4;
+        gbc.gridy = 6;
         gbc.insets = new Insets(0, 4, 8, 4);
         card.add(marksGrid, gbc);
 
@@ -1395,17 +1486,23 @@ class ExamResultGUI extends JFrame {
         mark3Field.addActionListener(submitAddAction);
 
         clearBtn.addActionListener(e -> {
+            String autoErp = ExamResultManagementSystem.formatNextId();
+            erpIdField.setText("ERP".equals(autoErp) ? "" : autoErp);
             nameField.setText("");
             mark1Field.setText("");
             mark2Field.setText("");
             mark3Field.setText("");
-            nameField.requestFocusInWindow();
+            if ("ERP".equals(autoErp)) {
+                erpIdField.requestFocusInWindow();
+            } else {
+                nameField.requestFocusInWindow();
+            }
         });
 
         btnRow.add(addBtn, BorderLayout.CENTER);
         btnRow.add(clearBtn, BorderLayout.EAST);
 
-        gbc.gridy = 5;
+        gbc.gridy = 7;
         gbc.insets = new Insets(2, 4, 2, 4);
         card.add(btnRow, gbc);
 
@@ -1430,7 +1527,7 @@ class ExamResultGUI extends JFrame {
 
         gbc.gridy = 1;
         gbc.insets = new Insets(0, 4, 2, 4);
-        card.add(createFieldLabel("Enter ERP ID (e.g. ERP 10061)"), gbc);
+        card.add(createFieldLabel("Enter ERP ID"), gbc);
 
         JPanel searchRow = new JPanel(new BorderLayout(8, 0));
         searchRow.setOpaque(false);
@@ -1606,12 +1703,14 @@ class ExamResultGUI extends JFrame {
     }
 
     private void onAddResult() {
+        String rawErp = erpIdField.getText();
         String rawName = nameField.getText();
         String s1 = mark1Field.getText();
         String s2 = mark2Field.getText();
         String s3 = mark3Field.getText();
 
-        OperationResult outcome = ExamResultManagementSystem.addResultFromInputs(resultsList, rawName, s1, s2, s3);
+        OperationResult outcome = ExamResultManagementSystem.addResultFromInputs(
+                resultsList, rawErp, rawName, s1, s2, s3);
         appendLog("> Menu Option 1 (Add Result)");
         appendLog(outcome.getMessage());
 
@@ -1659,7 +1758,7 @@ class ExamResultGUI extends JFrame {
     private void onSearchById() {
         String query = searchIdField.getText().trim();
         if (query.isEmpty()) {
-            String msg = "Please enter an ERP ID to search (e.g. ERP 10061).";
+            String msg = "Please enter an ERP ID to search.";
             setBanner(msg, false, false);
             return;
         }
@@ -1713,10 +1812,9 @@ class ExamResultGUI extends JFrame {
     }
 
     private void onClearAllRecords() {
-        String defaultId = ExamResultManagementSystem.formatId(ExamResultManagementSystem.INITIAL_ID_NUMBER);
         if (resultsList.isEmpty() && !(new File(fileName).exists())
-                && ExamResultManagementSystem.getNextIdNumber() == ExamResultManagementSystem.INITIAL_ID_NUMBER) {
-            String msg = "No saved records to clear. Next ERP ID is already " + defaultId + ".";
+                && ExamResultManagementSystem.getNextIdNumber() == null) {
+            String msg = "No saved records to clear. Auto-detected ERP ID is already ERP.";
             appendLog("> " + msg);
             setBanner(msg, false, true);
             return;
@@ -1725,7 +1823,7 @@ class ExamResultGUI extends JFrame {
         int choice = JOptionPane.showConfirmDialog(
                 this,
                 "Delete all " + resultsList.size() + " saved record(s) from " + fileName
-                        + " and reset the next ERP ID back to " + defaultId + "?",
+                        + " and reset the auto-detected ERP ID back to ERP?",
                 "Confirm Clear All Records",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
@@ -1736,10 +1834,10 @@ class ExamResultGUI extends JFrame {
             refreshTable(false);
             updateStats();
             tableModeLabel.setText("Showing 0 record(s)");
-            String msg = "Cleared all saved records from " + fileName + ". Next ERP ID reset to " + defaultId + ".";
+            String msg = "Cleared all saved records from " + fileName + ". Auto-detected ERP ID reset to ERP.";
             appendLog("> " + msg);
             setBanner(msg, true, false);
-            nameField.requestFocusInWindow();
+            erpIdField.requestFocusInWindow();
         }
     }
 
@@ -1773,9 +1871,12 @@ class ExamResultGUI extends JFrame {
     }
 
     private void updateStats() {
-        String nextId = ExamResultManagementSystem.formatId(ExamResultManagementSystem.getNextIdNumber());
+        String nextId = ExamResultManagementSystem.formatNextId();
         nextIdStatLabel.setText(nextId);
         formNextIdBadge.setText(nextId);
+        if (erpIdField != null) {
+            erpIdField.setText("ERP".equals(nextId) ? "" : nextId);
+        }
         totalRecordsStatLabel.setText(String.valueOf(resultsList.size()));
 
         int passCount = 0;

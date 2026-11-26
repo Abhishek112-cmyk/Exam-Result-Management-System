@@ -19,10 +19,10 @@ A full-stack and desktop Exam Result Management System built around custom Data 
 Manage student exam results with:
 - **Add student results** with marks in 3 subjects (each `0–100`).
 - **Display all results** stored in memory.
-- **Search by ERP ID** using manual Linear Search (`ERP 10061`, `erp10061`, or `10061`).
+- **Search by ERP ID** using manual Linear Search (flexible case/space/number matching).
 - **Sort results by percentage (high to low)** using manual in-place Adaptive Bubble Sort.
 - **Persistence**: Load existing records from `results.txt` at startup and save automatically (and via `@netlify/blobs` when deployed on Netlify).
-- **ERP ID Sequence**: Starts at **`ERP 10061`** and increments sequentially (`ERP 10062`, `ERP 10063`, …).
+- **Smart ERP ID Auto-Detection**: Displays **`ERP`** when empty, lets you enter the first student's ERP ID, and automatically detects and pre-fills the next sequential ERP ID (`max + 1`) for all subsequent records.
 - **Pass Criterion**: `Percentage >= 40.00%` → `Pass`, otherwise `Fail`.
 
 ---
@@ -47,7 +47,7 @@ Manage student exam results with:
 
 ### 2. Custom Linear Search (`searchById`)
 - **Why**: Student records are appended chronologically and frequently re-ordered by percentage rather than ID, so Linear Search scans unsorted IDs directly in $O(n)$ time and $O(1)$ space without maintaining extra index structures.
-- **Flexible Matching**: Normalizes `"ERP 10061"`, `"ERP10061"`, `"erp 10061"`, and `"10061"` to the same key.
+- **Flexible Matching**: Normalizes `"ERP <id>"`, `"ERP<id>"`, `"erp <id>"`, and `"<id>"` to the same key.
 
 ### 3. Custom Adaptive Bubble Sort (`sortByPercentage`)
 - **Why**: In-place ($O(1)$ auxiliary space), **stable** (preserves ERP chronological order when two students tie on percentage), and **adaptive** via an early-exit `swapped` flag ($O(n)$ best case when already sorted; $O(n^2)$ average/worst case).
@@ -60,7 +60,7 @@ Manage student exam results with:
 ├── ExamResultManagementSystem.java                 # Java backend: Console CLI + Smooth Swing GUI + Local HTTP Server
 ├── ExamResultManagementSystemTest.java             # Automated unit & integration test suite
 ├── public/                                         # Smooth Responsive Web Frontend (Netlify publish dir)
-│   ├── index.html                                  # Clean Web UI (ERP 10061+, Dark/Light mode, Live Console)
+│   ├── index.html                                  # Clean Web UI (Auto-Detected ERP IDs, Dark/Light mode)
 │   ├── styles.css                                  # Glassmorphic styling, micro-interactions, responsive layout
 │   └── app.js                                      # Frontend controller + localStorage offline fallback
 ├── netlify/functions/
@@ -123,7 +123,7 @@ This repository is pre-configured with `netlify.toml`, `public/`, and `netlify/f
 
 | Case | Input | Expected Output |
 | :--- | :--- | :--- |
-| **1. Normal Input** | `Kiran Patel`, Marks `80 70 90` | `Result added. ID: ERP 10061 \| Kiran Patel \| Total: 240/300 \| Percentage: 80.00 \| Result: Pass` |
-| **2. Boundary (40%)** | `Lalit Soni`, Marks `40 40 40` | `Result added. ID: ERP 10061 \| Lalit Soni \| Total: 120/300 \| Percentage: 40.00 \| Result: Pass` |
-| **3. Invalid Marks** | `Kiran Patel`, Marks `80 105 90` | `Invalid marks. Each mark must be between 0 and 100.` (`ERP 10061` not consumed) |
-| **4. Add + Sort + Search** | Add `Mitali Roy` (`35 30 38`), Sort, Search `ERP 10062` | Sorted high-to-low (`ERP 10061` then `ERP 10062`) and `Found: ERP 10062 \| Mitali Roy \| Total: 103/300 \| Percentage: 34.33 \| Result: Fail` |
+| **1. Normal Input** | First ERP `501`, `Kiran Patel`, Marks `80 70 90` | `Result added. ID: ERP 501 \| Kiran Patel \| Total: 240/300 \| Percentage: 80.00 \| Result: Pass` (Next ID auto-detects `ERP 502`) |
+| **2. Boundary (40%)** | First ERP `700`, `Lalit Soni`, Marks `40 40 40` | `Result added. ID: ERP 700 \| Lalit Soni \| Total: 120/300 \| Percentage: 40.00 \| Result: Pass` |
+| **3. Invalid Marks** | First ERP `801`, `Kiran Patel`, Marks `80 105 90` | `Invalid marks. Each mark must be between 0 and 100.` (No record added; badge remains `ERP`) |
+| **4. Auto-Detect + Sort + Search** | Add `Mitali Roy` (`35 30 38`) after `ERP 501`, Sort, Search `ERP 502` | Auto-assigns `ERP 502`, sorts high-to-low (`ERP 501` then `ERP 502`), and outputs `Found: ERP 502 \| Mitali Roy \| Total: 103/300 \| Percentage: 34.33 \| Result: Fail` |
